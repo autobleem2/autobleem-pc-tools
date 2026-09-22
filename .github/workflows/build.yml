@@ -1,7 +1,6 @@
-# autobleem-pc-tools CI: build the Win32 tools against the autobleem-core submodule, natively on a
-# windows-latest runner with MSYS2 UCRT64 (the tools are Windows programs). NOTE: the submodule checkout
-# needs autobleem-core public (a repo's GITHUB_TOKEN cannot read other private org repos). Gated by
-# AB_CI_ENABLED.
+# autobleem-pc-tools CI: cross-compile the Win32 tools (UCRT) against the autobleem-core submodule on a
+# Linux runner in the shared image, using its llvm-mingw toolchain (/opt/win-llvm.cmake) - much faster than
+# a windows-latest + setup-msys2 runner. Gated by AB_CI_ENABLED.
 name: build
 on:
   push:
@@ -16,24 +15,18 @@ concurrency:
 jobs:
   build:
     if: vars.AB_CI_ENABLED == 'true'
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/autobleem2/autobleem-build:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 0
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
-            mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-SDL2 mingw-w64-ucrt-x86_64-SDL2_image
-            mingw-w64-ucrt-x86_64-SDL2_mixer mingw-w64-ucrt-x86_64-SDL2_ttf mingw-w64-ucrt-x86_64-libpng
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+      - name: Configure (llvm-mingw UCRT cross)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/opt/win-llvm.cmake
       - name: Build
         run: cmake --build build
