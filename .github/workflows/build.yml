@@ -30,3 +30,80 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/opt/win-llvm.cmake
       - name: Build
         run: cmake --build build
+
+  plan:
+    if: vars.AB_CI_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else echo "version=$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"; fi
+
+  package:
+    # the three Win32 programs as Release builds, stripped and UPX-packed, in one artifact laid out as the
+    # folders they ship in: AutoBleemInstaller/ and UpdateRoms/ (exe + README.txt - what the site's
+    # AutoBleemInstaller-<v>.zip and UpdateRoms-<v>.zip hold; autobleem-appliance's assemble-psc.sh makes
+    # both from this) and AutoBleemWinSetup/ (the Windows product's setup helper, for its assembler).
+    if: vars.AB_CI_ENABLED == 'true'
+    needs: plan
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/autobleem2/autobleem-build:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Configure (Release, llvm-mingw UCRT cross)
+        run: cmake -S . -B build_rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/opt/win-llvm.cmake
+      - name: Build
+        run: cmake --build build_rel --target installer winsetup updateroms
+      - name: Package
+        run: |
+          set -euo pipefail
+          V="${{ needs.plan.outputs.version }}"
+          STRIP=""
+          for s in llvm-strip x86_64-w64-mingw32-strip; do command -v "$s" >/dev/null && { STRIP="$s"; break; }; done
+          [ -n "$STRIP" ] || { echo "::error::no strip for PE files in the image"; exit 1; }
+          rm -rf stage out && mkdir -p stage/AutoBleemInstaller stage/UpdateRoms stage/AutoBleemWinSetup out
+          cp build_rel/apps/installer/AutoBleemInstaller.exe stage/AutoBleemInstaller/
+          cp -a apps/installer/resources/. stage/AutoBleemInstaller/
+          cp build_rel/apps/installer/AutoBleemWinSetup.exe stage/AutoBleemWinSetup/
+          cp build_rel/apps/updateroms/UpdateRoms.exe stage/UpdateRoms/
+          cp -a apps/updateroms/resources/. stage/UpdateRoms/
+          for exe in stage/*/*.exe; do
+            "$STRIP" "$exe"
+            upx -q --best --lzma "$exe" >/dev/null || true
+            file "$exe"
+          done
+          (cd stage && zip -r -9 -q "../out/pc-tools-win64-$V.zip" .)
+          ls -l out; unzip -l "out/pc-tools-win64-$V.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pc-tools-win64
+          path: out/*.zip
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [plan, package]
+    runs-on: ubuntu-24.04
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { name: pc-tools-win64, path: out }
+      - name: Attach to the release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          prerelease=""; case "${GITHUB_REF_NAME}" in *-*) prerelease="--prerelease";; esac
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --title "AutoBleem PC tools ${GITHUB_REF_NAME}" --generate-notes $prerelease out/*.zip || \
+          gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" out/*.zip --clobber
