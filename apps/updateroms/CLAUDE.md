@@ -11,7 +11,7 @@ for a Pi card). The console then boots and finds everything in place; its own sc
 
 Two targets, like the console tools, but **no SDL and no AutoBleem rendering** (the owner's call, the same
 night it was first written on `ab_classic`): a plain Win32 window, and a statically linked exe that needs
-nothing of MSYS2 - the release bundle is **one 540 KB file** (Release, stripped, UPX) where the SDL version
+nothing of MSYS2 - the release bundle is **one file** (Release, stripped - not UPX-packed, which Defender flags as Wacatac) where the SDL version
 had been 28 MB plus 50 MB of DLLs.
 
 - **`updateroms_core`** (`src/core/update_roms_job.*`, links `ab_core`, tested from
@@ -38,7 +38,7 @@ had been 28 MB plus 50 MB of DLLs.
 
 Built on the dev hosts only (root `CMakeLists.txt`: not for `arm`/`aarch64`). **`tools/
 make_updateroms_bundle.sh`** makes the folder for a stick: a Release build in `build_updateroms/`
-(incremental, `--clean` wipes), stripped and UPX-packed into `build_win/UpdateRoms/` next to `README.txt`.
+(incremental, `--clean` wipes), stripped (never UPX-packed) into `build_win/UpdateRoms/` next to `README.txt`.
 `tools/make_usb.py` stages the Debug exe into `usb/UpdateRoms/` for the dev tree.
 
 Tested on the fake tree with the real network: 146 databases fetched and unpacked, playlists written with

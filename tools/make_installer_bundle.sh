@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The installer for a release: AutoBleemInstaller-<version>.zip with AutoBleemInstaller.exe (a plain Win32
-# program linked statically - no SDL, no MSYS2 DLLs - built as Release, stripped, UPX-packed), README.txt
+# program linked statically - no SDL, no MSYS2 DLLs - built as Release and stripped; never UPX-packed:
+# Defender quarantines a packed, unsigned exe as Trojan:Win32/Wacatac.C!ml), README.txt
 # and the console package it installs from, autobleem-psc-<version>.tar.gz. The exe looks for the package
 # next to itself, so the two stay together.
 #
@@ -8,9 +9,9 @@
 #   tools/make_installer_bundle.sh <autobleem-psc-<version>.tar.gz> --exe dist/win/AutoBleemInstaller.exe
 #
 # Run from the MSYS2 UCRT64 shell. The Release build goes into build_installer/ (incremental; --clean
-# wipes it), separate from build_win/'s Debug one. Set AB_NO_UPX=1 to skip packing. The package comes
+# wipes it), separate from build_win/'s Debug one. The package comes
 # from the build server's ci/build.sh psc (dist/psc/), or the download repository's pre-release. --exe
-# takes an installer already built (ci/build.sh win leaves one in dist/win/, stripped and packed) and
+# takes an installer already built (ci/build.sh win leaves one in dist/win/, stripped) and
 # builds nothing - the workflow's site job, any Linux host with zip or python3.
 set -e
 cd "$(dirname "$0")/.."
@@ -49,12 +50,9 @@ mkdir -p "$STAGE" "$OUT"
 cp "$EXE" "$STAGE/AutoBleemInstaller.exe"
 cp -r apps/installer/resources/. "$STAGE/"
 cp "$PACKAGE" "$STAGE/$NAME"
-# a fresh build is stripped and packed here; one from --exe already is (strip and upx refuse a packed one)
+# a fresh build is stripped here; one from --exe already is
 if [ "$EXE" = "$BUILD/apps/installer/AutoBleemInstaller.exe" ]; then
     strip "$STAGE/AutoBleemInstaller.exe"
-    if [ -z "${AB_NO_UPX:-}" ] && command -v upx >/dev/null 2>&1; then
-        upx -q --best --lzma "$STAGE/AutoBleemInstaller.exe" >/dev/null || true
-    fi
 fi
 ZIP="$PWD/$OUT/AutoBleemInstaller-$VERSION.zip"
 rm -f "$ZIP"
