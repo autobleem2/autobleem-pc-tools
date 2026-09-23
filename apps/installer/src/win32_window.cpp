@@ -36,6 +36,18 @@ namespace {
 
 const char *const WindowClass = "AutoBleemInstaller";
 const int IdTimer = 1;
+
+// a scratch folder for the channel lookups (three small catalogs)
+std::string tempDirectory() {
+    char path[MAX_PATH] = {0};
+    DWORD n = GetTempPathA(MAX_PATH, path);
+    std::string dir = n > 0 && n < MAX_PATH ? std::string(path, n) : std::string("./");
+    for (char &c : dir)
+        if (c == '\\')
+            c = '/';
+    return dir + "AutoBleemInstaller";
+}
+
 enum Ids {
     IdDrives = 100,
     IdRefresh,
@@ -49,6 +61,7 @@ enum Ids {
     IdSamples,
     IdInstall,
     IdAction, // Stop / Close / Back on the progress page
+    IdChannel,
 };
 const int Width = 640;
 const int HeroHeight = 270; // the picture: rows 90..630 of the 1280x720 splash, scaled to the width
@@ -119,6 +132,7 @@ private:
 struct Window {
     HWND hwnd = nullptr;
     // the questions
+    HWND channelLabel = nullptr, channel = nullptr;
     HWND drivesLabel = nullptr, drives = nullptr, refresh = nullptr, formatFs = nullptr, format = nullptr;
     HWND status = nullptr, coversLabel = nullptr, coversJ = nullptr, coversU = nullptr, coversP = nullptr;
     HWND retroarch = nullptr, bios = nullptr, samples = nullptr, install = nullptr;
@@ -129,7 +143,13 @@ struct Window {
     ULONG_PTR gdiplusToken = 0;
     vector<RemovableDrive> driveList;
     InstallOptions defaults;
-    string packageVersion; // "" when there is no package next to the program
+    // what the site's three channels offer a stick, looked up once in the background when the window opens
+    // (index = the dropdown's: release, testing, nightly); looked = the lookup is done
+    std::mutex channelsMutex;
+    ChannelRelease channels[3];
+    std::string channelErrors[3];
+    std::atomic<bool> looked{false};
+    thread lookup;
     StickInfo info;
     State state;
     thread worker;
@@ -184,9 +204,19 @@ Gdiplus::Image *loadHero() {
     return image;
 }
 
+const char *const ChannelNames[3] = {"release", "testing", "nightly"};
+const wchar_t *const ChannelLabels[3] = {L"Release", L"Testing (the next release)", L"Nightly (development build)"};
+const UINT WmChannelsLooked = WM_APP + 1;
+
+int selectedChannel(Window &w) {
+    int i = static_cast<int>(SendMessage(w.channel, CB_GETCURSEL, 0, 0));
+    return i < 0 || i > 2 ? 0 : i;
+}
+
 void showPage(Window &w, bool progress) {
     w.progressPage = progress;
-    for (HWND h : {w.drivesLabel, w.drives, w.refresh, w.formatFs, w.format, w.status, w.coversLabel, w.coversJ,
+    for (HWND h : {w.channelLabel, w.channel, w.drivesLabel, w.drives, w.refresh, w.formatFs, w.format, w.status,
+                   w.coversLabel, w.coversJ,
                    w.coversU, w.coversP, w.retroarch, w.bios, w.samples, w.install})
         ShowWindow(h, progress ? SW_HIDE : SW_SHOW);
     for (HWND h : {w.phaseLabel, w.phaseBar, w.bar, w.log, w.action})
@@ -205,6 +235,15 @@ void describeStick(Window &w) {
     string root = selectedRoot(w);
     string text;
     bool canInstall = false;
+    const int ch = selectedChannel(w);
+    string offered, channelError;
+    if (!w.defaults.packageFile.empty()) {
+        offered = InstallerJob::inspect(w.defaults).packageVersion;
+    } else {
+        std::lock_guard<std::mutex> lock(w.channelsMutex);
+        offered = w.channels[ch].version;
+        channelError = w.channelErrors[ch];
+    }
     if (root.empty()) {
         text = "No removable drive. Plug the stick in and press Refresh.";
     } else {
@@ -212,6 +251,7 @@ void describeStick(Window &w) {
         const RemovableDrive &d = w.driveList[static_cast<size_t>(i)];
         InstallOptions o = w.defaults;
         o.root = root;
+        o.packageFile.clear();
         w.info = InstallerJob::inspect(o);
         if (!d.ready) {
             text = "This drive has no file system - format it first (FAT32 works on every console).";
@@ -219,24 +259,33 @@ void describeStick(Window &w) {
             text = "The console needs a FAT32 (or exFAT) stick - this one is " + d.fileSystem + ". Format it first.";
         } else if (w.info.installed) {
             text = "AutoBleem " + (w.info.installedVersion.empty() ? "(unknown version)" : w.info.installedVersion) +
-                   " is on this stick: it will be updated to " + w.info.packageVersion +
+                   " is on this stick: it will be updated to " + offered +
                    ". Games, saves, memory cards and settings stay.";
+            if (!w.info.installedVersion.empty() && w.info.installedVersion == offered)
+                text = "AutoBleem " + offered + " is on this stick already - Update installs it again "
+                       "(games, saves, memory cards and settings stay).";
             canInstall = true;
         } else {
-            text =
-                "A fresh install of AutoBleem " + w.info.packageVersion + ". The stick's other files are left alone.";
+            text = "A fresh install of AutoBleem " + offered + ". The stick's other files are left alone.";
             canInstall = true;
         }
         if (w.info.hasRetroArch)
-            text += " RetroArch " + w.info.retroarchVersion + " is on it.";
+            text += w.info.retroarchVersion.empty() ? string(" RetroArch is on it.")
+                                                    : " RetroArch " + w.info.retroarchVersion + " is on it.";
         if (d.ready && _stricmp(d.label.c_str(), "SONY") != 0)
             text += " It is named \"" + (d.label.empty() ? string("(no label)") : d.label) +
                     "\" - it will be named SONY, as the console expects.";
         if (d.fileSystem == "exFAT")
             text += " (exFAT: the AutoBleem kernel is needed on the console.)";
     }
-    if (w.packageVersion.empty()) {
-        text = "No package next to the installer (autobleem-psc-<version>.tar.gz) - nothing to install.";
+    if (!w.defaults.packageFile.empty()) {
+        // --package: a local file, no channel
+    } else if (!w.looked.load()) {
+        text = "Asking the download site what each channel offers...";
+        canInstall = false;
+    } else if (offered.empty()) {
+        text = "The " + string(ChannelNames[ch]) + " channel has nothing to install: " + channelError +
+               ". Pick another channel, or check the internet connection.";
         canInstall = false;
     }
     SetWindowTextW(w.status, wide(text).c_str());
@@ -266,14 +315,17 @@ void layout(Window &w) {
     const int x = Margin, inner = Width - 2 * Margin;
     int y = HeroHeight + Margin;
     // the questions
+    MoveWindow(w.channelLabel, x, y + 4, 70, 20, TRUE);
+    MoveWindow(w.channel, x + 72, y, 260, 200, TRUE);
+    y += 32;
     MoveWindow(w.drivesLabel, x, y + 4, 70, 20, TRUE);
     MoveWindow(w.drives, x + 72, y, inner - 72 - 2 * 80 - 8 - 70 - 6, 200, TRUE);
     MoveWindow(w.refresh, Width - Margin - 80 - 8 - 70 - 6 - 80, y, 80, 24, TRUE);
     MoveWindow(w.formatFs, Width - Margin - 80 - 6 - 70, y, 70, 200, TRUE);
     MoveWindow(w.format, Width - Margin - 80, y, 80, 24, TRUE);
     y += 32;
-    MoveWindow(w.status, x, y, inner, 34, TRUE);
-    y += 40;
+    MoveWindow(w.status, x, y, inner, 52, TRUE); // three lines: the stick, the channel's version, RetroArch
+    y += 58;
     MoveWindow(w.coversLabel, x, y + 2, 110, 20, TRUE);
     MoveWindow(w.coversJ, x + 112, y, 70, 22, TRUE);
     MoveWindow(w.coversU, x + 190, y, 70, 22, TRUE);
@@ -307,6 +359,8 @@ void layout(Window &w) {
 void startInstall(Window &w) {
     InstallOptions o = w.defaults;
     o.root = selectedRoot(w);
+    if (o.packageFile.empty())
+        o.channel = ChannelNames[selectedChannel(w)];
     o.coversJapan = checked(w.coversJ);
     o.coversUsa = checked(w.coversU);
     o.coversPal = checked(w.coversP);
@@ -456,6 +510,40 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         boldFont.lfWeight = FW_SEMIBOLD;
         w->bold = CreateFontIndirectW(&boldFont);
 
+        w->channelLabel = make(*w, L"STATIC", L"Channel:", SS_LEFT, 0);
+        w->channel = make(*w, L"COMBOBOX", nullptr, WS_TABSTOP | CBS_DROPDOWNLIST, IdChannel);
+        for (const wchar_t *label : ChannelLabels)
+            SendMessageW(w->channel, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+        {
+            int initial = 0;
+            for (int i = 0; i < 3; i++)
+                if (w->defaults.channel == ChannelNames[i])
+                    initial = i;
+            SendMessage(w->channel, CB_SETCURSEL, initial, 0);
+        }
+        EnableWindow(w->channel, w->defaults.packageFile.empty());
+        // the three channels' offers, off the UI thread (three small downloads)
+        if (w->defaults.packageFile.empty()) {
+            w->lookup = thread([w]() {
+                for (int i = 0; i < 3; i++) {
+                    WinInetDownloader downloader;
+                    ChannelRelease rel;
+                    string error;
+                    const string scratch = tempDirectory();
+                    bool ok = InstallerJob::channelRelease(w->defaults.repoUrl, ChannelNames[i], downloader, scratch,
+                                                           rel, error);
+                    std::lock_guard<std::mutex> lock(w->channelsMutex);
+                    if (ok)
+                        w->channels[i] = rel;
+                    else
+                        w->channelErrors[i] = error;
+                }
+                w->looked.store(true);
+                PostMessage(w->hwnd, WmChannelsLooked, 0, 0);
+            });
+        } else {
+            w->looked.store(true);
+        }
         w->drivesLabel = make(*w, L"STATIC", L"USB stick:", SS_LEFT, 0);
         w->drives = make(*w, L"COMBOBOX", nullptr, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, IdDrives);
         w->refresh = make(*w, L"BUTTON", L"Refresh", WS_TABSTOP | BS_PUSHBUTTON, IdRefresh);
@@ -520,6 +608,10 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // the labels on the grey page, as the dialog font draws them
         return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_BTNFACE));
     }
+    case WmChannelsLooked:
+        if (w && !w->progressPage)
+            describeStick(*w);
+        return 0;
     case WM_TIMER:
         if (w)
             refresh(*w);
@@ -529,6 +621,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         switch (LOWORD(wParam)) {
         case IdDrives:
+        case IdChannel:
             if (HIWORD(wParam) == CBN_SELCHANGE)
                 describeStick(*w);
             break;
@@ -594,7 +687,6 @@ int runInstallerWindow(const InstallOptions &defaults) {
     InitCommonControlsEx(&icc);
     Window w;
     w.defaults = defaults;
-    w.packageVersion = InstallerJob::inspect(defaults).packageVersion;
     Gdiplus::GdiplusStartupInput gdiplusInput;
     Gdiplus::GdiplusStartup(&w.gdiplusToken, &gdiplusInput, nullptr);
     w.hero = loadHero();

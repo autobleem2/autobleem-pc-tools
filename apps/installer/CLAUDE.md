@@ -7,6 +7,17 @@ AutoBleem theme; the bundle a release carries is `AutoBleemInstaller-<version>.z
 `AutoBleemInstaller.exe` + `README.txt` + `autobleem-psc-<version>.tar.gz` (`tools/make_installer_bundle.sh
 <tarball>`; the zip is `PACKAGE_KINDS` "installer" on the site, the console's Install panel).
 
+**The stick package comes from a channel** (2026-09-23, the owner's call: no package bundled, no offline
+fallback): a Channel dropdown (Release / Testing / Nightly; the default follows the installer's own build
+- between tags nightly, a pre-release tag testing, else release) above the stick box. When the window opens
+a thread asks the site what each channel offers (`InstallerJob::channelRelease`, autobleem-core's
+`ab_installer`: the channel's list - `releases/latest.json`, `releases/unstable.json`, `nightly/latest.json`,
+with the launcher's fallbacks - and its `psc-fs` and `updateroms` files); the status line then says what
+is on the stick and what the channel would put there. The run passes `InstallOptions::channel`: the job
+downloads the package sha256-checked into its scratch folder and takes UpdateRoms from the same release.
+`--package FILE` (the `--quiet` path) still installs a local file. The zip the site offers is the exe and
+README only (autobleem-appliance's `assemble-psc.sh`).
+
 - **`InstallerJob`** (autobleem-core's `ab_installer`, `src/code/installer/installer_job.*` there since
   2026-09-23 - the console's own updater in the launcher runs it too; links `ab_core`, tested from
   autobleem-core's `tests/installer/test_installer_core.cpp` over a fake site and a package `tests/support/tar_builder.h`

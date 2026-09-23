@@ -1,12 +1,14 @@
 //
-// The AutoBleem installer for the PlayStation Classic: a stick from a PC. The stick's file system comes
-// from the package next to the program (autobleem-psc-<version>.tar.gz), the rest - the cover databases,
+// The AutoBleem installer for the PlayStation Classic: a stick from a PC. The stick's file system is the
+// chosen channel's package on the download site (release, testing or nightly), the rest - the cover databases,
 // RetroArch and what goes with it, the BIOS files, the sample games - from the download repository, as
 // asked. Run again over a stick that has AutoBleem, it updates it and leaves the user's games and data.
 //
 //   AutoBleemInstaller.exe                       the window: pick the stick, answer the questions, Install
 //   AutoBleemInstaller.exe --quiet --drive F:    no window, the same on the console it was started from:
-//       [--covers JUP] [--retroarch] [--bios] [--samples] [--package FILE] [--repo URL]
+//       [--channel release|testing|nightly] [--covers JUP] [--retroarch] [--bios] [--samples]
+//       [--package FILE] [--repo URL]
+//       --channel defaults to the installer's own kind of build; --package installs a local file instead
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
 //
 // On Windows a plain Win32 window (win32_window.cpp), statically linked: one file, nothing to install.
@@ -59,7 +61,7 @@ public:
 
 int usage() {
     cout << "USAGE: AutoBleemInstaller [--quiet --drive F: [--covers JUP] [--retroarch] [--bios] [--samples]]\n"
-            "                          [--package FILE] [--repo URL]"
+            "                          [--channel release|testing|nightly] [--package FILE] [--repo URL]"
          << endl;
     return EXIT_FAILURE;
 }
@@ -89,6 +91,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--drive" && value(options.root)) {
         } else if (arg == "--covers" && value(covers)) {
         } else if (arg == "--package" && value(options.packageFile)) {
+        } else if (arg == "--channel" && value(options.channel)) {
         } else if (arg == "--repo" && value(options.repoUrl)) {
         } else
             return usage();
@@ -96,20 +99,20 @@ int main(int argc, char *argv[]) {
     options.coversJapan = covers.find_first_of("Jj") != string::npos;
     options.coversUsa = covers.find_first_of("Uu") != string::npos;
     options.coversPal = covers.find_first_of("Pp") != string::npos;
-    if (options.packageFile.empty()) {
-#ifdef _WIN32
-        options.packageFile = InstallerJob::packageNextTo(programDirectory() + "/AutoBleemInstaller.exe");
-#else
-        options.packageFile = InstallerJob::packageNextTo(argv[0]);
-#endif
-    }
+    // the channel the stick package comes from: the one the installer itself was built on, unless asked
+    // (the window offers the other two); a --package file is installed as it is
+    if (options.channel.empty())
+        options.channel = Version::isBetweenTags() ? "nightly" : Version::isPreRelease() ? "testing" : "release";
+    if (!options.packageFile.empty())
+        options.channel.clear();
 
 #ifdef _WIN32
     if (quiet)
         attachParentConsole();
 #endif
     ableem::Log::initConsoleOnly();
-    PLOG_INFO << "AutoBleem installer " << Version::FULL_VERSION << ", package " << options.packageFile;
+    PLOG_INFO << "AutoBleem installer " << Version::FULL_VERSION << ", "
+              << (options.packageFile.empty() ? "the " + options.channel + " channel" : options.packageFile);
 
     if (!quiet) {
 #ifdef _WIN32
