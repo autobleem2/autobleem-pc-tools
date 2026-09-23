@@ -52,6 +52,9 @@ jobs:
     if: vars.AB_CI_ENABLED == 'true'
     needs: plan
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash   # a container job's default is sh, which has no pipefail
     container:
       image: ghcr.io/autobleem2/autobleem-build:latest
       credentials:
