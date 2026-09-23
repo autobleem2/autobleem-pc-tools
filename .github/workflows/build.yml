@@ -67,10 +67,11 @@ jobs:
           else echo "version=$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"; fi
 
   package:
-    # the three Win32 programs as Release builds, stripped and UPX-packed, in one artifact laid out as the
+    # the four Win32 programs as Release builds, stripped and UPX-packed, in one artifact laid out as the
     # folders they ship in: AutoBleemInstaller/ and UpdateRoms/ (exe + README.txt - what the site's
     # AutoBleemInstaller-<v>.zip and UpdateRoms-<v>.zip hold; autobleem-appliance's assemble-psc.sh makes
-    # both from this) and AutoBleemWinSetup/ (the Windows product's setup helper, for its assembler).
+    # both from this), AutoBleemWinSetup/ (the Windows product's setup helper, for its assembler) and
+    # AutoBleemFlasher/ (the PC stick flasher - AutoBleemFlasher-<v>.zip, assemble.sh's pcusb platform).
     if: vars.AB_CI_ENABLED == 'true'
     needs: plan
     runs-on: ubuntu-24.04
@@ -90,7 +91,7 @@ jobs:
       - name: Configure (Release, llvm-mingw UCRT cross)
         run: cmake -S . -B build_rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/opt/win-llvm.cmake
       - name: Build
-        run: cmake --build build_rel --target installer winsetup updateroms
+        run: cmake --build build_rel --target installer winsetup updateroms flasher
       - name: Package
         run: |
           set -euo pipefail
@@ -98,12 +99,14 @@ jobs:
           STRIP=""
           for s in llvm-strip x86_64-w64-mingw32-strip; do command -v "$s" >/dev/null && { STRIP="$s"; break; }; done
           [ -n "$STRIP" ] || { echo "::error::no strip for PE files in the image"; exit 1; }
-          rm -rf stage out && mkdir -p stage/AutoBleemInstaller stage/UpdateRoms stage/AutoBleemWinSetup out
+          rm -rf stage out && mkdir -p stage/AutoBleemInstaller stage/UpdateRoms stage/AutoBleemWinSetup stage/AutoBleemFlasher out
           cp build_rel/apps/installer/AutoBleemInstaller.exe stage/AutoBleemInstaller/
           cp -a apps/installer/resources/. stage/AutoBleemInstaller/
           cp build_rel/apps/installer/AutoBleemWinSetup.exe stage/AutoBleemWinSetup/
           cp build_rel/apps/updateroms/UpdateRoms.exe stage/UpdateRoms/
           cp -a apps/updateroms/resources/. stage/UpdateRoms/
+          cp build_rel/apps/flasher/AutoBleemFlasher.exe stage/AutoBleemFlasher/
+          cp -a apps/flasher/resources/. stage/AutoBleemFlasher/
           for exe in stage/*/*.exe; do
             "$STRIP" "$exe"
             upx -q --best --lzma "$exe" >/dev/null || true

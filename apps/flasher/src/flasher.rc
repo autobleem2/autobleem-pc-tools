@@ -1,0 +1,4 @@
+// the manifest: common controls v6, DPI awareness and requireAdministrator; the picture on top of the
+// window is the launcher's return splash (src/resources/splash/autobleem.jpg), as RCDATA 1 - as the installer's
+1 24 "flasher.manifest"
+1 RCDATA "../../../src/resources/splash/autobleem.jpg"
