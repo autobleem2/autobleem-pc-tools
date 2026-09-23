@@ -103,7 +103,7 @@ static int runUpdateRoms(int argc, char *argv[]) {
         return fail(error, quiet);
     DirEntry::createDir(Env::getPathToLogsDir());
     ableem::Log::addFile(Env::getPathToLogsDir() + sep + "updateroms.log");
-    PLOG_INFO << "UpdateRoms " << Version::FULL_VERSION << ", built " << Version::BUILD_TIMESTAMP << " UTC, stick "
+    PLOG_INFO << "UpdateRoms " << Env::productVersion() << " (" << Version::FULL_VERSION << ")" << ", built " << Version::BUILD_TIMESTAMP << " UTC, stick "
               << setup.root << " for " << setup.target;
 
 #ifdef _WIN32

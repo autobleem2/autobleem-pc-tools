@@ -16,6 +16,7 @@
 // --program to the folder this exe is in.
 //
 #include "installer/windows_install_job.h"
+#include "core/services/environment.h"
 #include "core/version.h"
 #include "win32_platform.h"
 #include "win32_setup_window.h"
@@ -120,7 +121,7 @@ int main(int argc, char *argv[]) {
     }
 #endif
     ableem::Log::initConsoleOnly();
-    PLOG_INFO << "AutoBleem setup " << Version::FULL_VERSION << ", program " << options.programDir << ", data "
+    PLOG_INFO << "AutoBleem setup " << Env::productVersion() << " (" << Version::FULL_VERSION << ")" << ", program " << options.programDir << ", data "
               << options.dataRoot;
 
     if (!quiet) {

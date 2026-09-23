@@ -12,6 +12,7 @@
 //       [--allow-fixed]  a USB hard drive too (left out otherwise: only a stick or a card is offered)
 //
 #include "installer/flasher_job.h"
+#include "core/services/environment.h"
 #include "core/version.h"
 
 #include "../../installer/src/win32_platform.h"
@@ -98,7 +99,7 @@ int main(int argc, char *argv[]) {
     if (quiet || list)
         attachParentConsole();
     ableem::Log::initConsoleOnly();
-    PLOG_INFO << "AutoBleem flasher " << Version::FULL_VERSION;
+    PLOG_INFO << "AutoBleem flasher " << Env::productVersion() << " (" << Version::FULL_VERSION << ")";
     if (list) {
         vector<string> notes;
         for (const PhysicalDisk &d : listTargetDisks(&notes, true))

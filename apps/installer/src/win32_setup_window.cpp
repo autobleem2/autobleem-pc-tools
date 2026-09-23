@@ -8,6 +8,7 @@
 #include "win32_setup_window.h"
 #include "win32_platform.h"
 
+#include "core/services/environment.h"
 #include "core/version.h"
 
 #include <ableem/engine/filesystem.h>
@@ -529,7 +530,7 @@ int runSetupWindow(const WindowsInstallOptions &defaults, bool autoStart) {
 
     HWND hwnd = CreateWindowExW(
         0, L"AutoBleemWinSetup",
-        wide("AutoBleem 2 " + string(Version::VERSION) + (autoStart ? " - setting up" : " - setup")).c_str(),
+        wide("AutoBleem 2 " + Env::productVersion() + (autoStart ? " - setting up" : " - setup")).c_str(),
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, Width, 600, nullptr,
         nullptr, wc.hInstance, &w);
     if (!hwnd) {

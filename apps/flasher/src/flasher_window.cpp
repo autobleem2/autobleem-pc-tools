@@ -9,6 +9,7 @@
 #include "win32_disk.h"
 
 #include "../../installer/src/win32_platform.h"
+#include "core/services/environment.h"
 #include "core/version.h"
 #include "installer/install_job_base.h" // humanSize
 
@@ -627,7 +628,7 @@ int runFlasherWindow(const FlashOptions &defaults) {
     RegisterClassW(&wc);
 
     HWND hwnd = CreateWindowExW(0, WindowClass,
-                                wide("AutoBleem 2 " + string(Version::VERSION) + " - write the PC USB stick").c_str(),
+                                wide("AutoBleem 2 " + Env::productVersion() + " - write the PC USB stick").c_str(),
                                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT,
                                 Width, 600, nullptr, nullptr, wc.hInstance, &w);
     if (!hwnd) {

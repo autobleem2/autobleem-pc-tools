@@ -7,6 +7,7 @@
 
 #include "win32_window.h"
 
+#include "core/services/environment.h"
 #include "core/version.h"
 
 #include <ableem/engine/game_scanner.h>
@@ -284,7 +285,7 @@ int runUpdateRomsWindow(const UpdateRomsJob::Setup &setup, const string &error) 
     wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassA(&wc);
 
-    const string title = "AutoBleem - Update ROMs " + string(Version::VERSION) + " (" + setup.root + ", " +
+    const string title = "AutoBleem - Update ROMs " + Env::productVersion() + " (" + setup.root + ", " +
                          (setup.target == "rpi" ? "Raspberry Pi" : "PlayStation Classic") + ")";
     HWND hwnd = CreateWindowExW(0, L"AutoBleemUpdateRoms", wide(title).c_str(), WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX,
                                 CW_USEDEFAULT, CW_USEDEFAULT, 640, 420, nullptr, nullptr, wc.hInstance, &w);

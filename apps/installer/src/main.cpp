@@ -16,6 +16,7 @@
 // WinINet.
 //
 #include "installer/installer_job.h"
+#include "core/services/environment.h"
 #include "core/version.h"
 #include "win32_platform.h"
 #include "win32_window.h"
@@ -111,7 +112,7 @@ int main(int argc, char *argv[]) {
         attachParentConsole();
 #endif
     ableem::Log::initConsoleOnly();
-    PLOG_INFO << "AutoBleem installer " << Version::FULL_VERSION << ", "
+    PLOG_INFO << "AutoBleem installer " << Env::productVersion() << " (" << Version::FULL_VERSION << ")" << ", "
               << (options.packageFile.empty() ? "the " + options.channel + " channel" : options.packageFile);
 
     if (!quiet) {
