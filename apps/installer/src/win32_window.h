@@ -8,7 +8,7 @@
 
 #ifdef _WIN32
 
-#include "core/installer_job.h"
+#include "installer/installer_job.h"
 
 #include <string>
 

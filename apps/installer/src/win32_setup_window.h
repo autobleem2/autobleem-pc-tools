@@ -8,7 +8,7 @@
 
 #ifdef _WIN32
 
-#include "core/windows_install_job.h"
+#include "installer/windows_install_job.h"
 
 // shows the window and returns when it is closed; `defaults` are what the questions start from (the
 // program folder, the data root the installer chose, the options it was given). With `autoStart` the

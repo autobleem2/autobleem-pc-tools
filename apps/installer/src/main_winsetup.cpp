@@ -15,7 +15,7 @@
 // --root defaults to the registry's DataRoot (what the installer wrote), else Documents\AutoBleem;
 // --program to the folder this exe is in.
 //
-#include "core/windows_install_job.h"
+#include "installer/windows_install_job.h"
 #include "core/version.h"
 #include "win32_platform.h"
 #include "win32_setup_window.h"

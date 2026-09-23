@@ -1,21 +1,9 @@
 # The installer: AutoBleem onto a PlayStation Classic stick from a PC - the stick's file system from the
-# package next to the program, the rest from the download repository. installer_core is the job (ab_core
-# only, tested from tests/apps), installer the program: a plain Win32 window on Windows (no SDL, no
-# AutoBleem theme - one self-contained exe, like UpdateRoms), the --quiet console path elsewhere. Built
-# for the dev hosts only: it is what runs on the PC the stick is plugged into.
-
-add_library(installer_core STATIC
-        src/core/install_job_base.cpp
-        src/core/install_job_base.h
-        src/core/installer_job.cpp
-        src/core/installer_job.h
-        src/core/legacy_layout.cpp
-        src/core/legacy_layout.h
-        src/core/windows_install_job.cpp
-        src/core/windows_install_job.h
-)
-target_include_directories(installer_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/code)
-target_link_libraries(installer_core ab_core)
+# package, the rest from the download repository. The job - InstallerJob, WindowsInstallJob - is
+# autobleem-core's ab_installer (moved there 2026-09-23 so the console's own updater in the launcher runs the
+# same code; its suites run there); installer is the program over it: a plain Win32 window on Windows (no
+# SDL, no AutoBleem theme - one self-contained exe, like UpdateRoms), the --quiet console path elsewhere.
+# Built for the dev hosts only: it is what runs on the PC the stick is plugged into.
 
 add_executable(installer
         src/main.cpp
@@ -25,7 +13,7 @@ add_executable(installer
         src/win32_window.h
 )
 set_target_properties(installer PROPERTIES OUTPUT_NAME AutoBleemInstaller)
-target_link_libraries(installer installer_core Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(installer ab_installer Threads::Threads ${CMAKE_DL_LIBS})
 
 if (WIN32)
     # a GUI-subsystem exe (no console window when double-clicked; --quiet attaches to the parent's), the
@@ -50,7 +38,7 @@ add_executable(winsetup
         src/win32_setup_window.h
 )
 set_target_properties(winsetup PROPERTIES OUTPUT_NAME AutoBleemWinSetup)
-target_link_libraries(winsetup installer_core Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(winsetup ab_installer Threads::Threads ${CMAKE_DL_LIBS})
 if (WIN32)
     target_sources(winsetup PRIVATE src/installer.rc)
     target_link_libraries(winsetup comctl32 user32 gdi32 gdiplus ole32 shell32 wininet)

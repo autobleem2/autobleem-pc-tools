@@ -13,7 +13,7 @@
 // Elsewhere (a Linux or macOS build) there is the --quiet path only, and a download command instead of
 // WinINet.
 //
-#include "core/installer_job.h"
+#include "installer/installer_job.h"
 #include "core/version.h"
 #include "win32_platform.h"
 #include "win32_window.h"

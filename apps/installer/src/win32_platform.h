@@ -4,7 +4,7 @@
 //
 #pragma once
 
-#include "core/installer_job.h"
+#include "installer/installer_job.h"
 
 #include <cstdint>
 #include <functional>

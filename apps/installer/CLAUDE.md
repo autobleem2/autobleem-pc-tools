@@ -7,8 +7,9 @@ AutoBleem theme; the bundle a release carries is `AutoBleemInstaller-<version>.z
 `AutoBleemInstaller.exe` + `README.txt` + `autobleem-psc-<version>.tar.gz` (`tools/make_installer_bundle.sh
 <tarball>`; the zip is `PACKAGE_KINDS` "installer" on the site, the console's Install panel).
 
-- **`installer_core`** (`src/core/installer_job.*`, links `ab_core`, tested from
-  `tests/apps/test_installer_core.cpp` over a fake site and a package `tests/support/tar_builder.h`
+- **`InstallerJob`** (autobleem-core's `ab_installer`, `src/code/installer/installer_job.*` there since
+  2026-09-23 - the console's own updater in the launcher runs it too; links `ab_core`, tested from
+  autobleem-core's `tests/installer/test_installer_core.cpp` over a fake site and a package `tests/support/tar_builder.h`
   writes): `InstallOptions` (the stick, the package, the repository URL, the six checkboxes, a scratch
   dir), `InstallerJob::inspect()` (is AutoBleem on the stick - `Autobleem/bin/autobleem/autobleem-gui` -
   and which `VERSION`; `RetroArch/bin/retroarch` + its `VERSION`; which covers; the package's `VERSION`),
@@ -87,9 +88,9 @@ progress page, the wizard asked the questions), `--quiet --update` what a silent
 the Start Menu's "AutoBleem Setup" (no flags) shows the questions again to add RetroArch or the BIOS
 files later.
 
-- **`WindowsInstallJob`** (`src/core/windows_install_job.*`, on `InstallJobBase` - the phase/line
+- **`WindowsInstallJob`** (`ab_installer`'s `installer/windows_install_job.*`, on `InstallJobBase` - the phase/line
   reporting, `downloadVerified`, `fetchCatalog`, `untar` and the BIOS pack loop the two jobs share;
-  tested from `tests/apps/test_windows_install_job.cpp`): **the data folder** (the tree made, the shipped
+  tested from autobleem-core's `tests/installer/test_windows_install_job.cpp`): **the data folder** (the tree made, the shipped
   `<program>/Themes/*` copied in once - a theme already there is the user's; `--update` removes
   `games.fingerprint`/`roms.fingerprint` so the launcher rescans), **the cover databases** (into
   `System/Databases`), **RetroArch** (libretro's own Windows build: the site's repack

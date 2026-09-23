@@ -49,7 +49,7 @@ jobs:
       - name: Configure (native)
         run: cmake -S . -B build_test -G Ninja -DCMAKE_BUILD_TYPE=Debug
       - name: Build
-        run: cmake --build build_test --target test_updateroms_core test_installer_core test_windows_install_job
+        run: cmake --build build_test --target test_updateroms_core
       - name: Test
         run: ctest --test-dir build_test --output-on-failure -j4
 
