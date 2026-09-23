@@ -649,10 +649,12 @@ TEST_CASE("UpdateRoms: the installer's own copy first; a broken site copy leaves
         REQUIRE(zip.open(fx.tmp.at("site/UpdateRoms-v2.0.0-pre0-abc1234.zip")));
         zip.addBytes("UpdateRoms/README.txt", "no program here");
         REQUIRE(zip.close());
-        const string ur = json("UpdateRoms-v2.0.0-pre0-abc1234.zip", fx.tmp.at("site/UpdateRoms-v2.0.0-pre0-abc1234.zip"));
+        const string ur =
+            json("UpdateRoms-v2.0.0-pre0-abc1234.zip", fx.tmp.at("site/UpdateRoms-v2.0.0-pre0-abc1234.zip"));
         const string fs = json("autobleem-psc-v2.0.0-pre0-abc1234.tar.gz", fx.options.packageFile);
         fx.tmp.writeFile("site/unstable.json", "{\"version\": \"v2.0.0-pre0-abc1234\", \"prerelease\": true, "
-                                               "\"files\": {\"psc-fs\": " + fs + ", \"updateroms\": " + ur + "}}");
+                                               "\"files\": {\"psc-fs\": " +
+                                                   fs + ", \"updateroms\": " + ur + "}}");
         string error;
         REQUIRE_MESSAGE(fx.run(error), error);
         CHECK(fx.tmp.readFile("stick/UpdateRoms/UpdateRoms.exe") == "MZ old");
