@@ -67,7 +67,8 @@ jobs:
           else echo "version=$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"; fi
 
   package:
-    # the four Win32 programs as Release builds, stripped and UPX-packed, in one artifact laid out as the
+    # the four Win32 programs as Release builds, stripped (never UPX-packed: Defender quarantines a packed,
+    # unsigned exe as Trojan:Win32/Wacatac.C!ml - the unpacked one scans clean), in one artifact laid out as the
     # folders they ship in: AutoBleemInstaller/ and UpdateRoms/ (exe + README.txt - what the site's
     # AutoBleemInstaller-<v>.zip and UpdateRoms-<v>.zip hold; autobleem-appliance's assemble-psc.sh makes
     # both from this), AutoBleemWinSetup/ (the Windows product's setup helper, for its assembler) and
@@ -109,11 +110,40 @@ jobs:
           cp -a apps/flasher/resources/. stage/AutoBleemFlasher/
           for exe in stage/*/*.exe; do
             "$STRIP" "$exe"
-            upx -q --best --lzma "$exe" >/dev/null || true
             file "$exe"
           done
-          (cd stage && zip -r -9 -q "../out/pc-tools-win64-$V.zip" .)
-          ls -l out; unzip -l "out/pc-tools-win64-$V.zip"
+      # the staged folder, unsigned: the sign job below makes the zip from it
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pc-tools-win64-unsigned
+          path: stage/
+          retention-days: 7
+
+  sign:
+    # Authenticode signatures for the four exes through SignPath (.signpath/artifact-configuration.xml names
+    # them; autobleem-build's signpath-sign action has the rules): a v* tag must come back signed, a develop
+    # build ships unsigned when nobody approves it within the hour. Hosted runner, like every job before it -
+    # SignPath signs nothing a self-hosted runner touched.
+    if: vars.AB_CI_ENABLED == 'true'
+    needs: [plan, package]
+    runs-on: ubuntu-24.04
+    permissions: { actions: read, contents: read }
+    steps:
+      - uses: autobleem2/autobleem-build/.github/actions/signpath-sign@develop
+        with:
+          artifact: pc-tools-win64-unsigned
+          path: stage
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ github.event_name != 'pull_request' && vars.SIGNPATH_ORGANIZATION_ID || '' }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          required: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      - name: Zip
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          (cd stage && zip -r -9 -q "../out/pc-tools-win64-${{ needs.plan.outputs.version }}.zip" .)
+          ls -l out; unzip -l out/*.zip
       - uses: actions/upload-artifact@v7
         with:
           name: pc-tools-win64
@@ -122,7 +152,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [plan, package]
+    needs: [plan, sign]
     runs-on: ubuntu-24.04
     permissions: { contents: write }
     steps:
@@ -141,7 +171,7 @@ jobs:
   # assembly fetches the way it fetches a v* release. Never for a pull request or a tag.
   nightly:
     if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
-    needs: [plan, package]
+    needs: [plan, sign]
     runs-on: ubuntu-24.04
     permissions: { contents: write }
     steps:

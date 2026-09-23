@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The SignPath project's default artifact configuration - paste it there; SignPath reads its own copy, not
+     this file. The artifact is build.yml's pc-tools-win64-unsigned (the staged folder, zipped by
+     upload-artifact): the four programs are ours and signed, README.txt/VERSION are not PE files. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file-set>
+      <include path="AutoBleemInstaller/AutoBleemInstaller.exe" />
+      <include path="AutoBleemWinSetup/AutoBleemWinSetup.exe" />
+      <include path="UpdateRoms/UpdateRoms.exe" />
+      <include path="AutoBleemFlasher/AutoBleemFlasher.exe" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>
