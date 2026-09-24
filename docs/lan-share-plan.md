@@ -63,7 +63,7 @@ Each step is one commit, or a core commit plus a submodule bump, with its tests.
 3. **Done** (2026-09-24, core `9e11c36`). **`DiscReader`** (`ab_core`): the `CdDrive` interface (TOC, raw sector, subchannel), `.bin`/`.cue`
    writing (multi-track, audio pregaps), `.sbi` from the subchannel, the rdb check, the title, and the
    multi-disc naming. Tested against a fake drive over the fake game's real MODE2 image (`test_disc_reader`).
-4. **The Windows drive** (`WinCdDrive`, pc-tools): the IOCTLs above, drive listing (`GetLogicalDrives` +
+4. **Done** (2026-09-24, pc-tools `0671fdf`; `LanShare.exe --list-drives` / `--read-disc` until the window). The owner's first disc, Resident Evil 3 - Nemesis (SLES-02698), read bit-perfect: 712,491,360 bytes, CRC-32 `7B248588`, the Redump record's; every Form 1 sector's EDC checked. **The Windows drive** (`WinCdDrive`, pc-tools): the IOCTLs above, drive listing (`GetLogicalDrives` +
    `GetDriveType == DRIVE_CDROM`), media change. Tested by hand with a real disc (see step 7).
 5. **`LanShare.exe`** (pc-tools `apps/lanshare/`): the window - the libraries list (Add / Remove), the
    status (URL + Copy, port, games / problems counts, the current downloads), the games list with each
