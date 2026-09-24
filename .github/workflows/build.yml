@@ -94,7 +94,7 @@ jobs:
       - name: Configure (Release, llvm-mingw UCRT cross)
         run: cmake -S . -B build_rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/opt/win-llvm.cmake
       - name: Build
-        run: cmake --build build_rel --target installer winsetup updateroms flasher lastresort
+        run: cmake --build build_rel --target installer winsetup updateroms flasher lastresort lanshare
       - name: Package
         run: |
           set -euo pipefail
@@ -102,7 +102,7 @@ jobs:
           STRIP=""
           for s in llvm-strip x86_64-w64-mingw32-strip; do command -v "$s" >/dev/null && { STRIP="$s"; break; }; done
           [ -n "$STRIP" ] || { echo "::error::no strip for PE files in the image"; exit 1; }
-          rm -rf stage out && mkdir -p stage/AutoBleemInstaller stage/UpdateRoms stage/AutoBleemWinSetup stage/AutoBleemFlasher stage/LastResortRecovery out
+          rm -rf stage out && mkdir -p stage/AutoBleemInstaller stage/UpdateRoms stage/AutoBleemWinSetup stage/AutoBleemFlasher stage/LastResortRecovery stage/LanShare out
           cp build_rel/apps/installer/AutoBleemInstaller.exe stage/AutoBleemInstaller/
           cp -a apps/installer/resources/. stage/AutoBleemInstaller/
           cp build_rel/apps/installer/AutoBleemWinSetup.exe stage/AutoBleemWinSetup/
@@ -112,6 +112,8 @@ jobs:
           cp -a apps/flasher/resources/. stage/AutoBleemFlasher/
           cp build_rel/apps/lastresort/LastResortRecovery.exe stage/LastResortRecovery/
           cp -a apps/lastresort/resources/. stage/LastResortRecovery/
+          cp build_rel/apps/lanshare/LanShare.exe stage/LanShare/
+          cp -a apps/lanshare/resources/. stage/LanShare/
           # Google's fastboot client, unchanged and not stripped (only our own exes, one level down, are)
           bash tools/fetch_platform_tools.sh stage/LastResortRecovery
           for exe in stage/*/*.exe; do
@@ -188,3 +190,33 @@ jobs:
         with:
           files: out/*.zip
           version: ${{ needs.plan.outputs.version }}
+
+  # LAN Share on the download site, next to abstored on the Store page's LAN server tab: its folder from the
+  # signed zip, as lanshare-windows-x86_64-<v>.zip in autobleem-repo's extensions/lanshare/<version>/ (a develop
+  # build as the development build, a v* tag as the release). On the self-hosted runner, where the site's tree
+  # is - a sibling container over the mounted docker.sock, as autobleem-repo's page.yml publishes.
+  site:
+    if: vars.AB_CI_ENABLED == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [plan, sign]
+    runs-on: [self-hosted, linux, x64]
+    env:
+      AB_REPO_DIR: /home/claude/autobleem-repo
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: autobleem2/autobleem-repo
+          ref: develop
+          path: autobleem-repo-tools
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with: { name: pc-tools-win64, path: in }
+      - name: Publish LAN Share to the download site
+        run: |
+          set -euo pipefail
+          V="${{ needs.plan.outputs.version }}"
+          V="${V#v}"
+          rm -rf ls && mkdir -p ls/out
+          unzip -q in/pc-tools-win64-*.zip 'LanShare/*' -d ls
+          (cd ls && zip -r -9 -q "out/lanshare-windows-x86_64-$V.zip" LanShare)
+          ls -l ls/out
+          docker run --rm             -v "$PWD:$PWD" -w "$PWD/autobleem-repo-tools" -v "$AB_REPO_DIR:$AB_REPO_DIR" -e REPO_DIR="$AB_REPO_DIR"             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*'             ghcr.io/autobleem2/autobleem-build:${{ startsWith(github.ref, 'refs/tags/v') && 'latest' || 'develop' }}             bash tools/repo_publish.sh --local extension lanshare "$V" "$PWD"/ls/out/*.zip
