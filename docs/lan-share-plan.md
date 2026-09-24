@@ -8,7 +8,7 @@ ran on a PC and a Pi.
 **The server is remote** (the owner, 2026-09-24, after the first window served from the PC itself): the app
 connects to an abstored on the network by the address typed in, shows its games and problems, and **publishes**
 games to it - a disc it read, or games found by scanning a local folder - through the server's **network share**
-when one is given (`\raspberrypi\games`: copied there, then a rescan asked for) or **uploaded over HTTP** to
+when one is given (`\\raspberrypi\games`: copied there, then a rescan asked for) or **uploaded over HTTP** to
 abstored otherwise (an endpoint abstored offers only when started with `--allow-uploads`, behind a token).
 Serving from the PC itself stays as an option, **"Also share from this PC", off by default**.
 
@@ -106,7 +106,7 @@ Each step is one commit, or a core commit plus a submodule bump, with its tests.
   - **Server**: the address (`http://192.168.68.144:8126`), the token when uploading, and optionally the
     share the server's games folder is on. **Connect** reads `/status.json`; the games and problems are the
     server's; its Store address is the one to copy.
-  - **Publish**: **Read a disc** reads into a local staging folder (`%LOCALAPPDATA%\AutoBleem LAN Share    staging`), then publishes it; **Publish games...** scans a chosen local folder (core's `LanLibrary`, read
+  - **Publish**: **Read a disc** reads into a local staging folder (`%LOCALAPPDATA%\AutoBleem LAN Share\staging`), then publishes it; **Publish games...** scans a chosen local folder (core's `LanLibrary`, read
     only) and lists its games with their problems and whether the server has them already (by serial and
     title), and publishes the ticked ones. Publishing copies to the share when one is set and reachable, else
     uploads over HTTP with progress; then the server is asked to rescan and the list comes back from it.
