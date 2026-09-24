@@ -80,12 +80,17 @@ Each step is one commit, or a core commit plus a submodule bump, with its tests.
    game's problems, **Open the status page**, **Read a disc** (drive, progress, per-disc prompt, result), the
    tray icon and menu, **Start with Windows**, the settings in `%LOCALAPPDATA%`. The first start triggers
    Windows' own firewall prompt: the window says to allow **private** networks only.
-6. **Packaging and CI**: `tools/make_lanshare_bundle.sh`, the workflow's build + SignPath + release, and
+6. **Done** (2026-09-25, pc-tools `edbfe58`, autobleem-repo `9e1bc9b`): no bundle script - the workflow builds
+   `lanshare`, stages `LanShare/` (exe + README.txt) in `pc-tools-win64-<v>.zip` (in the SignPath
+   configuration; signed once signing is on), and a `site` job publishes `lanshare-windows-x86_64-<v>.zip` to
+   `extensions/lanshare/`, listed in the Store page's LAN server tab. **Packaging and CI**: `tools/make_lanshare_bundle.sh`, the workflow's build + SignPath + release, and
    the download site - an entry next to UpdateRoms and a line on the Store page's LAN server tab.
-7. **On hardware**: a PC with a DVD drive and real discs - a single-disc game, a multi-disc game, a game with
+7. **Dropped** (the owner, 2026-09-25: no hardware disc tests - the first real disc, step 4, stands).
+   **On hardware**: a PC with a DVD drive and real discs - a single-disc game, a multi-disc game, a game with
    CD audio, a LibCrypt game (PAL) - read, served, installed through the Store on the Pi 400 and the console,
    and played.
-8. **Docs**: a LAN Share section in the manuals (English and Polish, with shots), pc-tools' CLAUDE.md, and
+8. **Done** (2026-09-25): the manuals' chapter 5 is "On the PC" - 5.2 LAN Share, English and Polish with its
+   picture (launcher `215bf95`, published); `apps/lanshare/CLAUDE.md`; the Store plan's table. **Docs**: a LAN Share section in the manuals (English and Polish, with shots), pc-tools' CLAUDE.md, and
    the Store plan's LAN source part pointing here.
 
 ## Remote server (steps 9-13)
@@ -138,7 +143,7 @@ goes on from that size.
 13. **The window, remote first**: the server section, Publish games..., Read a disc publishing to the server,
     "Also share from this PC" off by default; the settings move (server address, token, share, localServer).
 
-Steps 6-8 (packaging, hardware, docs) follow step 13.
+**The plan is done** (2026-09-25): steps 1-6 and 8-13; step 7 dropped.
 
 ## Open questions
 
