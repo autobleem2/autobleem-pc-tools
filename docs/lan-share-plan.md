@@ -114,6 +114,17 @@ Each step is one commit, or a core commit plus a submodule bump, with its tests.
 
 ## Steps (remote)
 
+Steps 9-13 are **done** (2026-09-24/25; core develop `f681ac0`, ext_store `5c34e0d`, pc-tools `4927155`), with
+two things the owner asked for on the way:
+- **Removal**: `DELETE /games/<id>` (uploads on, the token) and `Publisher::remove` (the same through the
+  share) move a game's folder into `.removed/` next to the games - never deleted; the window's "Remove from
+  the server..." asks first.
+- **No second copy**: publishing skips a game the server has already (by serial, else by title), and a read
+  disc the server has is not sent - "Game (2)" only for two different games of one name.
+And one race found by core's Linux CI: a stopped upload's request could still be writing when the resumed
+one asked for the staged size. The server now takes one writer a file (409 with the size so far), the client
+goes on from that size.
+
 9. **`/status.json` in `LanServer`** (core), tested over HTTP.
 10. **Uploads in `LanServer`** (core): the endpoints above, off unless `Config::uploads` is set, tested over HTTP
     (a whole game, a resumed file, a commit under a taken name, a wrong token, a path escape, no space);
