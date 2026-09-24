@@ -85,7 +85,8 @@ Each step is one commit, or a core commit plus a submodule bump, with its tests.
    configuration; signed once signing is on), and a `site` job publishes `lanshare-windows-x86_64-<v>.zip` to
    `extensions/lanshare/`, listed in the Store page's LAN server tab. **Packaging and CI**: `tools/make_lanshare_bundle.sh`, the workflow's build + SignPath + release, and
    the download site - an entry next to UpdateRoms and a line on the Store page's LAN server tab.
-7. **Dropped** (the owner, 2026-09-25: no hardware disc tests - the first real disc, step 4, stands).
+7. **A TODO for the testers** (the owner, 2026-09-25: autobleem-main's `docs/todo.md`, "Testers" - the first
+   real disc, step 4, stands for now).
    **On hardware**: a PC with a DVD drive and real discs - a single-disc game, a multi-disc game, a game with
    CD audio, a LibCrypt game (PAL) - read, served, installed through the Store on the Pi 400 and the console,
    and played.
@@ -143,7 +144,7 @@ goes on from that size.
 13. **The window, remote first**: the server section, Publish games..., Read a disc publishing to the server,
     "Also share from this PC" off by default; the settings move (server address, token, share, localServer).
 
-**The plan is done** (2026-09-25): steps 1-6 and 8-13; step 7 dropped.
+**The plan is done** (2026-09-25): steps 1-6 and 8-13; step 7, the hardware tests, is a TODO in autobleem-main's `docs/todo.md`.
 
 ## Open questions
 
