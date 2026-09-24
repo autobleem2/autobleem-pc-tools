@@ -208,6 +208,9 @@ jobs:
           ref: develop
           path: autobleem-repo-tools
           fetch-depth: 0
+      # The self-hosted runner keeps its workspace between runs, and checkout only cleans its own path: a zip
+      # left in in/ by the previous run made the unzip below see two archives.
+      - run: rm -rf in ls
       - uses: actions/download-artifact@v8
         with: { name: pc-tools-win64, path: in }
       - name: Publish LAN Share to the download site
@@ -216,7 +219,7 @@ jobs:
           V="${{ needs.plan.outputs.version }}"
           V="${V#v}"
           rm -rf ls && mkdir -p ls/out
-          unzip -q in/pc-tools-win64-*.zip 'LanShare/*' -d ls
+          unzip -q "in/pc-tools-win64-${{ needs.plan.outputs.version }}.zip" 'LanShare/*' -d ls
           (cd ls && zip -r -9 -q "out/lanshare-windows-x86_64-$V.zip" LanShare)
           ls -l ls/out
           docker run --rm             -v "$PWD:$PWD" -w "$PWD/autobleem-repo-tools" -v "$AB_REPO_DIR:$AB_REPO_DIR" -e REPO_DIR="$AB_REPO_DIR"             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*'             ghcr.io/autobleem2/autobleem-build:${{ startsWith(github.ref, 'refs/tags/v') && 'latest' || 'develop' }}             bash tools/repo_publish.sh --local extension lanshare "$V" "$PWD"/ls/out/*.zip
