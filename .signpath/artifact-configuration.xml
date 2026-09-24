@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The SignPath project's default artifact configuration - paste it there; SignPath reads its own copy, not
      this file. The artifact is build.yml's pc-tools-win64-unsigned (the staged folder, zipped by
-     upload-artifact): the five programs are ours and signed, README.txt/VERSION are not PE files; LastResortRecovery/platform-tools/ is
+     upload-artifact): the six programs are ours and signed, README.txt/VERSION are not PE files; LastResortRecovery/platform-tools/ is
      Google's, already signed by Google, and left alone. -->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <zip-file>
@@ -11,6 +11,7 @@
       <include path="UpdateRoms/UpdateRoms.exe" />
       <include path="AutoBleemFlasher/AutoBleemFlasher.exe" />
       <include path="LastResortRecovery/LastResortRecovery.exe" />
+      <include path="LanShare/LanShare.exe" />
       <for-each>
         <authenticode-sign />
       </for-each>
