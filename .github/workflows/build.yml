@@ -208,6 +208,10 @@ jobs:
           ref: develop
           path: autobleem-repo-tools
           fetch-depth: 0
+      # a self-hosted runner keeps its workspace: an earlier run's zip in in/ made the unzip below match two
+      # files and fail ("filename not matched", exit 11)
+      - name: A clean in/
+        run: rm -rf in ls
       - uses: actions/download-artifact@v8
         with: { name: pc-tools-win64, path: in }
       - name: Publish LAN Share to the download site
