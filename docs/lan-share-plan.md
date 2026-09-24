@@ -18,8 +18,9 @@ the tray, and reads a game straight from the PC's CD drive into the library. Ask
   them, and the checksums are cached in `%LOCALAPPDATA%\AutoBleem LAN Share\`.
 - **Read a disc**: with a PS1 disc in the drive, **Read a disc** makes `<library>\<Title>\<Title>.cue` +
   `.bin` (and `.sbi` when the disc has LibCrypt), titled from the serial through the covers databases and
-  the rdb. A game on several discs asks for the next one and puts them together as `<Title> (Disc N)`, the
-  layout the launcher's scanner merges. The new game is served as soon as it is written.
+  the rdb. A game on several discs asks for the next one and puts it in the same folder as
+  `<Title> (Disc N).bin/.cue`, which the library serves as one game with its discs in order. The new game is
+  served as soon as it is written.
 
 Nothing here decrypts or unlocks anything. A PS1 disc is plain data; the subchannel that LibCrypt games
 check is read as it is on the disc, which is what `.sbi` files hold and what emulators expect.
@@ -31,21 +32,21 @@ check is read as it is on the disc, which is what `.sbi` files hold and what emu
   SignPath like the others, never UPX-packed.
 - **The server code is shared, not copied.** Today `LanLibrary`, `HttpServer` and the status page are
   ext_store's `abstored_core` (`server/src/`). They move into **autobleem-core** as an SDL-free library,
-  `ab_lanserver`, linking `ableem_engine` only, with their tests (`test_store_server` today). ext_store's
+  `ableem_lanserver` (in lib_ableem, `<ableem/lanserver/...>`), linking `ableem_engine` only, with their tests (`test_store_server` today). ext_store's
   `abstored` then links it from core, and LAN Share takes it through pc-tools' `autobleem-core` submodule.
   One server, two front ends.
 - **Several folders**: `LanLibrary` serves one `gamesDir` today. It grows a list of roots. A game's id and
   its `/files/` path are prefixed by its root's name when there is more than one root, so two libraries can
   both hold `Tekken 3/`. abstored keeps a single root and unchanged URLs.
-- **The disc reader** is `DiscReader` in core's engine (the interface, the `.cue`/`.sbi` writing and the
+- **The disc reader** is `DiscReader` in core's `ab_core` (`core/services/disc_reader.*`: the interface, the `.cue`/`.sbi` writing and the
   multi-disc naming, all tested against a fake drive) with one Windows back end in pc-tools:
   - `CreateFile("\\.\D:")` + `IOCTL_CDROM_READ_TOC_EX` (the full TOC: every track, data or audio, and the
     lead-out).
   - Each sector through `IOCTL_CDROM_RAW_READ` at 2352 bytes (`YellowMode2` for data, `CDDA` for audio), with
     `RawWithSubCode` (2448) when the drive supports it, for the subchannel.
-  - LibCrypt: the sectors whose subchannel Q is not what its position says are written to `.sbi`. Only when
-    the serial is a known LibCrypt title, or the Q data says so. A drive that cannot return subchannel data
-    still makes a playable image for every other game, and says so for a LibCrypt one.
+  - LibCrypt: the data track's sectors whose subchannel Q is not what its position says (a bad CRC, another
+    address) are written to `.sbi`; more than 64 of them is the drive's noise, not LibCrypt, and no `.sbi` is
+    written. A drive that cannot return subchannel data still makes a playable image for every other game.
   - Read errors are retried, then reported with the sector. The image is checked against the rdb's CRC for
     that serial when the rdb has one: "matches the known good dump" or "does not match".
 
@@ -53,15 +54,15 @@ check is read as it is on the disc, which is what `.sbi` files hold and what emu
 
 Each step is one commit, or a core commit plus a submodule bump, with its tests.
 
-1. **`ab_lanserver` in autobleem-core**: `LanLibrary`, `HttpServer` and the status page moved from ext_store,
+1. **Done** (2026-09-24, core `6e466f5`, ext_store `311115a`). **`ableem_lanserver` in autobleem-core**: `LanLibrary`, `HttpServer` and the status page moved from ext_store,
    and their tests with them. ext_store's `server/` becomes `main.cpp` over core's library. Its standalone
    build and `INSTALL-linux.md` stay as they are, and abstored's output is byte-identical before and after.
-2. **Several roots** in `LanLibrary`: `Config::roots` (name + folder), prefixed ids and paths when there is
+2. **Done** (2026-09-24, core `5a61aeb`). **Several roots** in `LanLibrary`: `Config::roots` (name + folder), prefixed ids and paths when there is
    more than one root, and the fingerprint over all of them. Tested with two roots holding the same game
    folder name.
-3. **`DiscReader`** (core, engine): the `CdDrive` interface (TOC, raw sector, subchannel), `.bin`/`.cue`
+3. **Done** (2026-09-24, core `9e11c36`). **`DiscReader`** (`ab_core`): the `CdDrive` interface (TOC, raw sector, subchannel), `.bin`/`.cue`
    writing (multi-track, audio pregaps), `.sbi` from the subchannel, the rdb check, the title, and the
-   multi-disc naming. Tested against a fake drive built from `tests/data` images.
+   multi-disc naming. Tested against a fake drive over the fake game's real MODE2 image (`test_disc_reader`).
 4. **The Windows drive** (`WinCdDrive`, pc-tools): the IOCTLs above, drive listing (`GetLogicalDrives` +
    `GetDriveType == DRIVE_CDROM`), media change. Tested by hand with a real disc (see step 7).
 5. **`LanShare.exe`** (pc-tools `apps/lanshare/`): the window - the libraries list (Add / Remove), the
