@@ -1,0 +1,6 @@
+// the manifest (common controls v6, DPI awareness, asInvoker - only the driver install is elevated, as a
+// second run of the program); RCDATA 1 the launcher's return splash (the other pages' picture, as the
+// installer's), RCDATA 2 the board with the FASTBOOT pads marked (tools/make_pcb_diagram.py)
+1 24 "lastresort.manifest"
+1 RCDATA "../../../src/resources/splash/autobleem.jpg"
+2 RCDATA "pcb_fastboot.png"

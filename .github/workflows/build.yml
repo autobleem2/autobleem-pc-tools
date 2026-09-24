@@ -49,7 +49,7 @@ jobs:
       - name: Configure (native)
         run: cmake -S . -B build_test -G Ninja -DCMAKE_BUILD_TYPE=Debug
       - name: Build
-        run: cmake --build build_test --target test_updateroms_core
+        run: cmake --build build_test --target test_updateroms_core test_lastresort_core
       - name: Test
         run: ctest --test-dir build_test --output-on-failure -j4
 
@@ -67,12 +67,14 @@ jobs:
           else echo "version=$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"; fi
 
   package:
-    # the four Win32 programs as Release builds, stripped (never UPX-packed: Defender quarantines a packed,
+    # the five Win32 programs as Release builds, stripped (never UPX-packed: Defender quarantines a packed,
     # unsigned exe as Trojan:Win32/Wacatac.C!ml - the unpacked one scans clean), in one artifact laid out as the
     # folders they ship in: AutoBleemInstaller/ and UpdateRoms/ (exe + README.txt - what the site's
     # AutoBleemInstaller-<v>.zip and UpdateRoms-<v>.zip hold; autobleem-appliance's assemble-psc.sh makes
-    # both from this), AutoBleemWinSetup/ (the Windows product's setup helper, for its assembler) and
-    # AutoBleemFlasher/ (the PC stick flasher - AutoBleemFlasher-<v>.zip, assemble.sh's pcusb platform).
+    # both from this), AutoBleemWinSetup/ (the Windows product's setup helper, for its assembler),
+    # AutoBleemFlasher/ (the PC stick flasher - AutoBleemFlasher-<v>.zip, assemble.sh's pcusb platform) and
+    # LastResortRecovery/ (exe + README.txt + Google's platform-tools/, pinned - assemble-psc.sh puts it inside
+    # AutoBleemInstaller-<v>.zip).
     if: vars.AB_CI_ENABLED == 'true'
     needs: plan
     runs-on: ubuntu-24.04
@@ -92,7 +94,7 @@ jobs:
       - name: Configure (Release, llvm-mingw UCRT cross)
         run: cmake -S . -B build_rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/opt/win-llvm.cmake
       - name: Build
-        run: cmake --build build_rel --target installer winsetup updateroms flasher
+        run: cmake --build build_rel --target installer winsetup updateroms flasher lastresort
       - name: Package
         run: |
           set -euo pipefail
@@ -100,7 +102,7 @@ jobs:
           STRIP=""
           for s in llvm-strip x86_64-w64-mingw32-strip; do command -v "$s" >/dev/null && { STRIP="$s"; break; }; done
           [ -n "$STRIP" ] || { echo "::error::no strip for PE files in the image"; exit 1; }
-          rm -rf stage out && mkdir -p stage/AutoBleemInstaller stage/UpdateRoms stage/AutoBleemWinSetup stage/AutoBleemFlasher out
+          rm -rf stage out && mkdir -p stage/AutoBleemInstaller stage/UpdateRoms stage/AutoBleemWinSetup stage/AutoBleemFlasher stage/LastResortRecovery out
           cp build_rel/apps/installer/AutoBleemInstaller.exe stage/AutoBleemInstaller/
           cp -a apps/installer/resources/. stage/AutoBleemInstaller/
           cp build_rel/apps/installer/AutoBleemWinSetup.exe stage/AutoBleemWinSetup/
@@ -108,6 +110,10 @@ jobs:
           cp -a apps/updateroms/resources/. stage/UpdateRoms/
           cp build_rel/apps/flasher/AutoBleemFlasher.exe stage/AutoBleemFlasher/
           cp -a apps/flasher/resources/. stage/AutoBleemFlasher/
+          cp build_rel/apps/lastresort/LastResortRecovery.exe stage/LastResortRecovery/
+          cp -a apps/lastresort/resources/. stage/LastResortRecovery/
+          # Google's fastboot client, unchanged and not stripped (only our own exes, one level down, are)
+          bash tools/fetch_platform_tools.sh stage/LastResortRecovery
           for exe in stage/*/*.exe; do
             "$STRIP" "$exe"
             file "$exe"
@@ -120,7 +126,7 @@ jobs:
           retention-days: 7
 
   sign:
-    # Authenticode signatures for the four exes through SignPath (.signpath/artifact-configuration.xml names
+    # Authenticode signatures for the five exes through SignPath (.signpath/artifact-configuration.xml names
     # them; autobleem-build's signpath-sign action has the rules): a v* tag must come back signed, a develop
     # build ships unsigned when nobody approves it within the hour. Hosted runner, like every job before it -
     # SignPath signs nothing a self-hosted runner touched.
