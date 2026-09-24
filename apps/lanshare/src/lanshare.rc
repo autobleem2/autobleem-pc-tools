@@ -1,0 +1,3 @@
+// the manifest (common controls v6, DPI awareness) and the icon (the launcher's, src/win/autobleem.ico there)
+1 24 "lanshare.manifest"
+1 ICON "lanshare.ico"
