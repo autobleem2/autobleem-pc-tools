@@ -32,9 +32,7 @@ add_subdirectory(apps/updateroms)
 add_subdirectory(apps/installer)
 add_subdirectory(apps/flasher)
 add_subdirectory(apps/lastresort)
-if (WIN32)
-    add_subdirectory(apps/lanshare) # docs/lan-share-plan.md: a Windows program
-endif()
+add_subdirectory(apps/lanshare)  # docs/lan-share-plan.md: the program is Windows only
 
 # the tools' own suites (tests/), on the core's harness - run by the CI's native test job
 option(AB_TOOL_TESTS "Build the PC tools' unit tests" ON)

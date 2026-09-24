@@ -2,7 +2,8 @@
 // AutoBleem LAN Share: the owner's PS1 games shared with the AutoBleem Store on the home network, and a PS1 disc
 // read from the PC's drive into the library (docs/lan-share-plan.md).
 //
-//   LanShare.exe                         the window (step 5 of the plan)
+//   LanShare.exe                         the window
+//   LanShare.exe --tray                  the same, started in the tray (Windows' start-up entry)
 //   LanShare.exe --list-drives           the CD/DVD drives, one per line
 //   LanShare.exe --read-disc D: <library folder> [--covers DIR] [--rdb FILE]
 //                [--disc N [--folder DIR --title TITLE]]
@@ -11,6 +12,7 @@
 //
 #include "core/main.h"
 #include "core/services/disc_reader.h"
+#include "win32_window.h"
 #include "win_cd_drive.h"
 
 #include <ableem/engine/log.h>
@@ -110,10 +112,13 @@ int readDisc(int argc, char *argv[]) {
 
 int run(int argc, char *argv[]) {
     const string mode = argc > 1 ? argv[1] : "";
-    if (mode.empty()) {
-        MessageBoxA(nullptr, "The LAN Share window is not built yet - use --list-drives or --read-disc from a console.",
-                    "AutoBleem LAN Share", MB_OK | MB_ICONINFORMATION);
-        return EXIT_SUCCESS;
+    if (mode.empty() || mode == "--tray") {
+        ableem::Log::initConsoleOnly(plog::info);
+        wchar_t path[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, path, MAX_PATH);
+        char utf8[MAX_PATH * 3] = {};
+        WideCharToMultiByte(CP_UTF8, 0, path, -1, utf8, sizeof(utf8), nullptr, nullptr);
+        return runLanShareWindow(mode == "--tray", utf8);
     }
     attachParentConsole();
     ableem::Log::initConsoleOnly(plog::warning);

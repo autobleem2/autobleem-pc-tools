@@ -1,11 +1,21 @@
 # AutoBleem LAN Share - plan
 
-A Windows program that shares the owner's PS1 games with the AutoBleem Store on the home network. It is
-`abstored` (ext_store's LAN server, `server/`) with a window: it picks the game folders, serves them, sits in
-the tray, and reads a game straight from the PC's CD drive into the library. Asked for by the owner on
-2026-09-24, once the Store could read a LAN source and abstored ran on a PC and a Pi.
+A Windows program that puts the owner's PS1 games on the **LAN server** the AutoBleem Store reads - an
+`abstored` (ext_store's `server/`) running on the Pi, a NAS or another PC - and reads a game straight from the
+PC's CD drive for it. Asked for by the owner on 2026-09-24, once the Store could read a LAN source and abstored
+ran on a PC and a Pi.
+
+**The server is remote** (the owner, 2026-09-24, after the first window served from the PC itself): the app
+connects to an abstored on the network by the address typed in, shows its games and problems, and **publishes**
+games to it - a disc it read, or games found by scanning a local folder - through the server's **network share**
+when one is given (`\\raspberrypi\games`: copied there, then a rescan asked for) or **uploaded over HTTP** to
+abstored otherwise (an endpoint abstored offers only when started with `--allow-uploads`, behind a token).
+Serving from the PC itself stays as an option, **"Also share from this PC", off by default**.
 
 ## What it does
+
+(Steps 1-5 below built the first shape - the app as the server. Steps 9 on make it the remote server's
+manager; the bullets here describe the first shape, the "Remote server" section the second.)
 
 - **Libraries**: one or more folders of games, added and removed in the window. Each is served exactly as
   abstored serves a games folder: one folder per game, any depth, read only, the problems shown next to
@@ -65,7 +75,7 @@ Each step is one commit, or a core commit plus a submodule bump, with its tests.
    multi-disc naming. Tested against a fake drive over the fake game's real MODE2 image (`test_disc_reader`).
 4. **Done** (2026-09-24, pc-tools `0671fdf`; `LanShare.exe --list-drives` / `--read-disc` until the window). The owner's first disc, Resident Evil 3 - Nemesis (SLES-02698), read bit-perfect: 712,491,360 bytes, CRC-32 `7B248588`, the Redump record's; every Form 1 sector's EDC checked. **The Windows drive** (`WinCdDrive`, pc-tools): the IOCTLs above, drive listing (`GetLogicalDrives` +
    `GetDriveType == DRIVE_CDROM`), media change. Tested by hand with a real disc (see step 7).
-5. **`LanShare.exe`** (pc-tools `apps/lanshare/`): the window - the libraries list (Add / Remove), the
+5. **Done** (2026-09-24, pc-tools `63e889a`: the app as the server - reshaped by steps 9-13). **`LanShare.exe`** (pc-tools `apps/lanshare/`): the window - the libraries list (Add / Remove), the
    status (URL + Copy, port, games / problems counts, the current downloads), the games list with each
    game's problems, **Open the status page**, **Read a disc** (drive, progress, per-disc prompt, result), the
    tray icon and menu, **Start with Windows**, the settings in `%LOCALAPPDATA%`. The first start triggers
@@ -77,6 +87,58 @@ Each step is one commit, or a core commit plus a submodule bump, with its tests.
    and played.
 8. **Docs**: a LAN Share section in the manuals (English and Polish, with shots), pc-tools' CLAUDE.md, and
    the Store plan's LAN source part pointing here.
+
+## Remote server (steps 9-13)
+
+- **abstored stays read-only unless told otherwise.** Two things are added to `LanServer` (so abstored and the
+  app's optional local server have them alike):
+  - `GET /status.json`: the name, the version, the games (id, title, serial, discs, size, the library), the
+    problems, whether checksums are still being worked out, whether uploads are on, the free space of each
+    library - what the app shows for a remote server, read by a program instead of a person.
+  - **Uploads**, only with `--allow-uploads` (a random token made and kept in `--state`, printed at start;
+    `--upload-token` sets one). `PUT /upload/<game folder>/<file>?offset=N` (`X-AB-Token`) appends to
+    `<root>/.uploading/<game folder>/<file>` - a stopped upload goes on from what is there (`HEAD` says how
+    much); `POST /upload/<game folder>?commit` moves the folder into the root under a FAT-safe name
+    (" (2)" when taken), then rescans; `DELETE /upload/<game folder>` drops a staging folder. Refused: a
+    wrong token, a path with `..` or a separator, a file larger than the free space. With several roots a
+    `library=` query names the root.
+- **The app** (`LanShare.exe`):
+  - **Server**: the address (`http://192.168.68.144:8126`), the token when uploading, and optionally the
+    share the server's games folder is on. **Connect** reads `/status.json`; the games and problems are the
+    server's; its Store address is the one to copy.
+  - **Publish**: **Read a disc** reads into a local staging folder (`%LOCALAPPDATA%\AutoBleem LAN Share\staging`), then publishes it; **Publish games...** scans a chosen local folder (core's `LanLibrary`, read
+    only) and lists its games with their problems and whether the server has them already (by serial and
+    title), and publishes the ticked ones. Publishing copies to the share when one is set and reachable, else
+    uploads over HTTP with progress; then the server is asked to rescan and the list comes back from it.
+  - **Also share from this PC** (off by default): the local server of steps 1-5, its folders and port.
+
+## Steps (remote)
+
+Steps 9-13 are **done** (2026-09-24/25; core develop `f681ac0`, ext_store `5c34e0d`, pc-tools `4927155`), with
+two things the owner asked for on the way:
+- **Removal**: `DELETE /games/<id>` (uploads on, the token) and `Publisher::remove` (the same through the
+  share) move a game's folder into `.removed/` next to the games - never deleted; the window's "Remove from
+  the server..." asks first.
+- **No second copy**: publishing skips a game the server has already (by serial, else by title), and a read
+  disc the server has is not sent - "Game (2)" only for two different games of one name.
+And one race found by core's Linux CI: a stopped upload's request could still be writing when the resumed
+one asked for the staged size. The server now takes one writer a file (409 with the size so far), the client
+goes on from that size.
+
+9. **`/status.json` in `LanServer`** (core), tested over HTTP.
+10. **Uploads in `LanServer`** (core): the endpoints above, off unless `Config::uploads` is set, tested over HTTP
+    (a whole game, a resumed file, a commit under a taken name, a wrong token, a path escape, no space);
+    `HttpServer` learns PUT/POST/DELETE with a streamed body.
+11. **abstored**: `--allow-uploads [--upload-token T]`; the status page says whether uploads are on;
+    INSTALL-linux.md's service section (the upload token, and that the games folder must then be writable
+    by the service account).
+12. **`LanClient` and `Publisher`** (core): `LanClient` reads `/status.json` and uploads a file with resume over
+    plain HTTP (sockets, no TLS - a home network); `Publisher` publishes a game folder through a share or the
+    client and asks for a rescan. Tested against a `LanServer` in the same process.
+13. **The window, remote first**: the server section, Publish games..., Read a disc publishing to the server,
+    "Also share from this PC" off by default; the settings move (server address, token, share, localServer).
+
+Steps 6-8 (packaging, hardware, docs) follow step 13.
 
 ## Open questions
 
