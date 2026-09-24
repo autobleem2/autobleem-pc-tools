@@ -24,3 +24,7 @@ and whatever else is ticked. The window says what is on the stick and what the c
 
 For scripts: AutoBleemInstaller.exe --quiet --drive F: [--channel release|testing|nightly] [--covers JUP]
              [--retroarch] [--bios] [--samples] [--package autobleem-psc-<version>.tar.gz]
+
+If the console no longer starts at all - and Sony's recovery (the stick with LBOOT.EPB, the power cord
+pulled and put back) does not bring it back - LastResortRecovery\LastResortRecovery.exe in this folder
+writes the console's own backup back to it over USB. Its README.txt says what it takes.
