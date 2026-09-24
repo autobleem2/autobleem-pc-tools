@@ -1,5 +1,6 @@
 # autobleem-pc-tools: the Windows console-stick installer (AutoBleemInstaller), the PC-stick flasher
-# (AutoBleemFlasher), the Windows-product setup
+# (AutoBleemFlasher), LastResortRecovery (a console that no longer starts, back from its LBOOT.EPB over
+# fastboot), the Windows-product setup
 # (AutoBleemWinSetup) and UpdateRoms. Win32 programs (no SDL of their own) that link ab_core from the
 # autobleem-core submodule. Cross-compiled UCRT with llvm-mingw in the autobleem-build image (see build.yml).
 cmake_minimum_required(VERSION 3.12)
@@ -30,6 +31,7 @@ add_subdirectory(autobleem-core)
 add_subdirectory(apps/updateroms)
 add_subdirectory(apps/installer)
 add_subdirectory(apps/flasher)
+add_subdirectory(apps/lastresort)
 
 # the tools' own suites (tests/), on the core's harness - run by the CI's native test job
 option(AB_TOOL_TESTS "Build the PC tools' unit tests" ON)
