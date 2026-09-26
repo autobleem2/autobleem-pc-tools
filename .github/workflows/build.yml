@@ -186,10 +186,21 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with: { name: pc-tools-win64, path: out }
+      # the admin App's token, so the new nightly starts autobleem-appliance's assembly at once (a repository
+      # without AB_ADMIN_APP_ID skips this, and the appliance's schedule assembles it instead)
+      - id: app
+        if: vars.AB_ADMIN_APP_ID != ''
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.AB_ADMIN_APP_ID }}
+          private-key: ${{ secrets.AB_ADMIN_APP_KEY }}
+          owner: autobleem2
+          repositories: autobleem-appliance
       - uses: autobleem2/autobleem-build/.github/actions/nightly-release@develop
         with:
           files: out/*.zip
           version: ${{ needs.plan.outputs.version }}
+          dispatch-token: ${{ steps.app.outputs.token }}
 
   # LAN Share on the download site, next to abstored on the Store page's LAN server tab: its folder from the
   # signed zip, as lanshare-windows-x86_64-<v>.zip in autobleem-repo's extensions/lanshare/<version>/ (a develop
