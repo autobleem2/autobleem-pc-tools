@@ -204,12 +204,12 @@ jobs:
 
   # LAN Share on the download site, next to abstored on the Store page's LAN server tab: its folder from the
   # signed zip, as lanshare-windows-x86_64-<v>.zip in autobleem-repo's extensions/lanshare/<version>/ (a develop
-  # build as the development build, a v* tag as the release). On the self-hosted runner, where the site's tree
+  # build as the development build, a v* tag as the release). On the psc-build runner, where the site's tree
   # is - a sibling container over the mounted docker.sock, as autobleem-repo's page.yml publishes.
   site:
     if: vars.AB_CI_ENABLED == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v'))
     needs: [plan, sign]
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, psc-build]
     env:
       AB_REPO_DIR: /home/claude/autobleem-repo
     steps:
