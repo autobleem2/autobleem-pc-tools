@@ -6,7 +6,7 @@ stick (`<stick>/UpdateRoms/UpdateRoms.exe`), does there what the launcher's own 
 Pi - `RetroArchScanner` over `roms/<system>/`, `CoreInfoTable` from the stick's `retroarch/info/`,
 identification against `retroarch/database/rdb/`, `OnlineAssets` for the databases bundle and the box
 art - **with the PC's network** and **with the target's paths in the playlists** (`usb_root` from the
-target's `platform/<target>.ini`: `/media/roms/...` for the console, `/media/autobleem/RetroArch/roms/...`
+target's `platform/<target>.ini`: `/media/RetroArch/roms/...` for the console, `/media/autobleem/RetroArch/roms/...`
 for a Pi card). The console then boots and finds everything in place; its own scan has nothing left to do.
 
 Two targets, like the console tools, but **no SDL and no AutoBleem rendering** (the owner's call, the same
@@ -42,5 +42,5 @@ make_updateroms_bundle.sh`** makes the folder for a stick: a Release build in `b
 `tools/make_usb.py` stages the Debug exe into `usb/UpdateRoms/` for the dev tree.
 
 Tested on the fake tree with the real network: 146 databases fetched and unpacked, playlists written with
-`/media/...` paths and `/media/retroarch/cores/...` core paths, covers fetched, the window and the packed
+`/media/...` paths and `/media/RetroArch/bin/cores/...` core paths, covers fetched, the window and the packed
 exe both run. **Not yet run against a real console stick** - the console has never run this build at all.
