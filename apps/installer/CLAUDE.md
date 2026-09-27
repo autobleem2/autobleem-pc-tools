@@ -27,7 +27,9 @@ README only (autobleem-appliance's `assemble-psc.sh`).
   `phasesFor()` (the step titles the options ask for) and `run()`: **the package** (listed, must hold
   the launcher; the shipped theme names are noted), **the stick** (an update keeps `config.ini` aside
   and removes what the package ships - `Autobleem/bin/autobleem`, `bin/emu`, `bin/emunxt`, `rc`, `lib/libs.tar.gz`,
-  `start.sh`, `Apps/pscbios`, `Apps/abflashkit`, `Docs`, the shipped `Themes/<name>` - and nothing else),
+  `start.sh`, `Apps/pscbios` (the old App-era PSC-Bios, still removed if left over), `Apps/abflashkit`,
+  `Extensions/pscbios` plus every other `Extensions/<name>` the package itself ships, `Docs`, the shipped
+  `Themes/<name>` - and nothing else),
   **the old layout** (`src/core/legacy_layout.*`, a phase only when `LegacyLayout::detect()` finds an
   AutoBleem 1.0 / NG / RetroBoot stick - `retroarch/` at the root with `retroarch.cfg` or `cores/`, or
   `roms/` at the root: `retroarch` -> `RetroArch/bin`, `retroarch/system` -> `RetroArch/bios`, `roms` ->
