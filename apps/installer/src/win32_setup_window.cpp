@@ -7,6 +7,7 @@
 
 #include "win32_setup_window.h"
 #include "win32_platform.h"
+#include "ui_theme.h"
 
 #include "core/services/environment.h"
 #include "core/version.h"
@@ -51,7 +52,7 @@ enum Ids {
     IdAction, // Stop / Close on the progress page
 };
 const int Width = 640;
-const int HeroHeight = 270; // the picture: rows 90..630 of the 1280x720 splash, scaled to the width
+const int HeroHeight = uitheme::HeroHeight; // the 640x150 picture and the 1 px cyan line under it
 const int Margin = 14;
 
 //******************
@@ -149,29 +150,8 @@ void setChecked(HWND h, bool on) {
     SendMessage(h, BM_SETCHECK, on ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
-// the hero picture from the exe's resources (autobleem.jpg as RCDATA 1)
-Gdiplus::Image *loadHero() {
-    HRSRC res = FindResourceW(nullptr, MAKEINTRESOURCEW(1), reinterpret_cast<LPCWSTR>(RT_RCDATA));
-    if (!res)
-        return nullptr;
-    HGLOBAL data = LoadResource(nullptr, res);
-    DWORD size = SizeofResource(nullptr, res);
-    void *bytes = LockResource(data);
-    if (!bytes || !size)
-        return nullptr;
-    HGLOBAL copy = GlobalAlloc(GMEM_MOVEABLE, size);
-    memcpy(GlobalLock(copy), bytes, size);
-    GlobalUnlock(copy);
-    IStream *stream = nullptr;
-    if (CreateStreamOnHGlobal(copy, TRUE, &stream) != S_OK)
-        return nullptr;
-    Gdiplus::Image *image = new Gdiplus::Image(stream);
-    stream->Release();
-    if (image->GetLastStatus() != Gdiplus::Ok) {
-        delete image;
-        return nullptr;
-    }
-    return image;
+bool isCheckbox(int id) {
+    return id >= IdCoversJ && id <= IdSamples; // the BS_AUTOCHECKBOX buttons, in the enum's order
 }
 
 void showPage(Window &w, bool progress) {
@@ -372,18 +352,13 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         w = reinterpret_cast<Window *>(reinterpret_cast<CREATESTRUCT *>(lParam)->lpCreateParams);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(w));
         w->hwnd = hwnd;
-        NONCLIENTMETRICSW metrics = {};
-        metrics.cbSize = sizeof(metrics);
-        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0);
-        w->font = CreateFontIndirectW(&metrics.lfMessageFont);
-        LOGFONTW boldFont = metrics.lfMessageFont;
-        boldFont.lfWeight = FW_SEMIBOLD;
-        w->bold = CreateFontIndirectW(&boldFont);
+        uitheme::loadFonts(w->font, w->bold);
+        uitheme::applyDarkTitleBar(hwnd); // older Windows keep their light bar
 
         w->folderLabel = make(*w, L"STATIC", L"Data folder:", SS_LEFT, 0);
         w->folder = make(*w, L"EDIT", wide(w->defaults.dataRoot).c_str(), WS_TABSTOP | ES_AUTOHSCROLL, IdFolder,
                          WS_EX_CLIENTEDGE);
-        w->browse = make(*w, L"BUTTON", L"Browse...", WS_TABSTOP | BS_PUSHBUTTON, IdBrowse);
+        w->browse = make(*w, L"BUTTON", L"Browse...", WS_TABSTOP | BS_OWNERDRAW, IdBrowse);
         w->status = make(*w, L"STATIC", L"", SS_LEFT, 0);
         SendMessage(w->status, WM_SETFONT, reinterpret_cast<WPARAM>(w->bold), TRUE);
         w->coversLabel = make(*w, L"STATIC", L"Cover databases:", SS_LEFT, 0);
@@ -397,7 +372,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                        WS_TABSTOP | BS_AUTOCHECKBOX, IdBios);
         w->samples = make(*w, L"BUTTON", L"Add the sample games (free homebrew, so the shelf is not empty)",
                           WS_TABSTOP | BS_AUTOCHECKBOX, IdSamples);
-        w->install = make(*w, L"BUTTON", L"Install", WS_TABSTOP | BS_DEFPUSHBUTTON, IdInstall);
+        w->install = make(*w, L"BUTTON", L"Install", WS_TABSTOP | BS_OWNERDRAW, IdInstall);
         setChecked(w->coversJ, w->defaults.coversJapan);
         setChecked(w->coversU, w->defaults.coversUsa);
         setChecked(w->coversP, w->defaults.coversPal);
@@ -409,8 +384,10 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessage(w->phaseLabel, WM_SETFONT, reinterpret_cast<WPARAM>(w->bold), TRUE);
         w->phaseBar = make(*w, PROGRESS_CLASSW, nullptr, 0, 0);
         w->bar = make(*w, PROGRESS_CLASSW, nullptr, PBS_MARQUEE, 0);
+        uitheme::styleProgress(w->phaseBar);
+        uitheme::styleProgress(w->bar);
         w->log = make(*w, L"LISTBOX", nullptr, WS_VSCROLL | LBS_NOINTEGRALHEIGHT | LBS_NOSEL, 0, WS_EX_CLIENTEDGE);
-        w->action = make(*w, L"BUTTON", L"Stop", WS_TABSTOP | BS_PUSHBUTTON, IdAction);
+        w->action = make(*w, L"BUTTON", L"Stop", WS_TABSTOP | BS_OWNERDRAW, IdAction);
 
         layout(*w);
         showPage(*w, false);
@@ -424,27 +401,38 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
-        RECT hero = {0, 0, Width, HeroHeight};
-        if (w && w->hero) {
-            Gdiplus::Graphics g(dc);
-            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-            Gdiplus::Rect dest(0, 0, Width, HeroHeight);
-            g.DrawImage(w->hero, dest, 0, 90, 1280, 540, Gdiplus::UnitPixel);
-        } else {
-            HBRUSH navy = CreateSolidBrush(RGB(6, 26, 58));
-            FillRect(dc, &hero, navy);
-            DeleteObject(navy);
-            SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, RGB(232, 242, 255));
-            if (w)
-                SelectObject(dc, w->bold);
-            DrawTextW(dc, L"AutoBleem 2", -1, &hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
+        uitheme::paintHero(dc, Width, w ? w->hero : nullptr, w ? w->bold : nullptr);
         EndPaint(hwnd, &ps);
         return 0;
     }
     case WM_CTLCOLORSTATIC:
-        return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_BTNFACE));
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLORLISTBOX:
+    case WM_CTLCOLOREDIT: {
+        // the dark look; the combo boxes are not touched (the system draws them)
+        LRESULT brush = 0;
+        if (uitheme::controlColor(msg, reinterpret_cast<HDC>(wParam), reinterpret_cast<HWND>(lParam), brush))
+            return brush;
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+    case WM_DRAWITEM: {
+        const DRAWITEMSTRUCT *item = reinterpret_cast<const DRAWITEMSTRUCT *>(lParam);
+        if (!w || !item || item->CtlType != ODT_BUTTON)
+            return FALSE;
+        const UINT defaultId = w->progressPage ? IdAction : IdInstall;
+        uitheme::drawButton(*item, w->bold, item->CtlID == defaultId);
+        return TRUE;
+    }
+    case WM_NOTIFY: {
+        const NMHDR *header = reinterpret_cast<const NMHDR *>(lParam);
+        if (w && header && header->code == NM_CUSTOMDRAW && isCheckbox(static_cast<int>(header->idFrom)))
+            return uitheme::drawCheckbox(*reinterpret_cast<const NMCUSTOMDRAW *>(lParam), w->font);
+        return 0;
+    }
+    case DM_GETDEFID:
+        // Enter presses the default button, as the old BS_DEFPUSHBUTTON did (the owner-drawn buttons carry
+        // no default style)
+        return w ? MAKELONG(w->progressPage ? IdAction : IdInstall, DC_HASDEFID) : 0;
     case WM_TIMER:
         if (w)
             refresh(*w);
@@ -517,15 +505,17 @@ int runSetupWindow(const WindowsInstallOptions &defaults, bool autoStart) {
     w.autoStart = autoStart;
     Gdiplus::GdiplusStartupInput gdiplusInput;
     Gdiplus::GdiplusStartup(&w.gdiplusToken, &gdiplusInput, nullptr);
-    w.hero = loadHero();
+    w.hero = uitheme::loadHero(); // null = no picture in the exe: paintHero draws the fallback
 
     WNDCLASSA wc = {};
     wc.lpfnWndProc = windowProc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.lpszClassName = WindowClass;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
-    wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hbrBackground = uitheme::graphiteBrush();
+    wc.hIcon = LoadIcon(wc.hInstance, MAKEINTRESOURCE(1)); // the autobleem.ico of the .rc
+    if (!wc.hIcon)
+        wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassA(&wc);
 
     HWND hwnd = CreateWindowExW(

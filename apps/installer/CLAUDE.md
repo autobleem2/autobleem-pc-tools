@@ -90,8 +90,9 @@ into the bundle), `applyDarkTitleBar()` (DWM, loaded dynamically), `loadHero()`/
 `controlColor()` (WM_CTLCOLOR* for labels, the log, edits; combos untouched), `drawButton()`
 (`BS_OWNERDRAW`, cut corners, magenta default/focused), `drawCheckbox()` (NM_CUSTOMDRAW),
 `styleProgress()` (theme off, cyan on dark). The owner-drawn buttons carry no default style, so the
-window answers `DM_GETDEFID`. AutoBleemWinSetup and AutoBleemFlasher move to it next (`installer.rc`
-stays theirs until then).
+window answers `DM_GETDEFID`. All three programs use it (AutoBleemInstaller, AutoBleemWinSetup, AutoBleemFlasher),
+each with its own `*_exe.rc` (manifest, `ICON 1` = `apps/common/autobleem.ico`, the two fonts, its own hero in
+its `ui/` folder) - the old `installer.rc`/`flasher.rc` with the 1280x720 splash as RCDATA 1 are gone.
 
 Built on the dev hosts only (root `CMakeLists.txt`, next to UpdateRoms). Verified 2026-09-20 on the PC:
 41/41 tests; a `--quiet` install of the pre-release package into a folder over the real site (the

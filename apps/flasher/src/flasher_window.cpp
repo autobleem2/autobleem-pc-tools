@@ -7,6 +7,7 @@
 
 #include "flasher_window.h"
 #include "win32_disk.h"
+#include "ui_theme.h"
 
 #include "../../installer/src/win32_platform.h"
 #include "core/services/environment.h"
@@ -50,7 +51,7 @@ enum Ids {
     IdAction, // Stop / Close / Back on the progress page
 };
 const int Width = 640;
-const int HeroHeight = 270; // the picture: rows 90..630 of the 1280x720 splash, scaled to the width
+const int HeroHeight = uitheme::HeroHeight; // the 640x150 picture and the 1 px cyan line under it
 const int Margin = 14;
 const int Channels = 3; // the dropdown's release, testing, nightly - then "An image file on this PC..."
 const char *const ChannelNames[Channels] = {"release", "testing", "nightly"};
@@ -169,29 +170,8 @@ HWND make(Window &w, const wchar_t *cls, const wchar_t *text, DWORD style, int i
     return h;
 }
 
-// the hero picture from the exe's resources (autobleem.jpg as RCDATA 1)
-Gdiplus::Image *loadHero() {
-    HRSRC res = FindResourceW(nullptr, MAKEINTRESOURCEW(1), reinterpret_cast<LPCWSTR>(RT_RCDATA));
-    if (!res)
-        return nullptr;
-    HGLOBAL data = LoadResource(nullptr, res);
-    DWORD size = SizeofResource(nullptr, res);
-    void *bytes = LockResource(data);
-    if (!bytes || !size)
-        return nullptr;
-    HGLOBAL copy = GlobalAlloc(GMEM_MOVEABLE, size);
-    memcpy(GlobalLock(copy), bytes, size);
-    GlobalUnlock(copy);
-    IStream *stream = nullptr;
-    if (CreateStreamOnHGlobal(copy, TRUE, &stream) != S_OK)
-        return nullptr;
-    Gdiplus::Image *image = new Gdiplus::Image(stream);
-    stream->Release();
-    if (image->GetLastStatus() != Gdiplus::Ok) {
-        delete image;
-        return nullptr;
-    }
-    return image;
+bool isCheckbox(int id) {
+    return id >= IdVerify && id <= IdFixed; // the BS_AUTOCHECKBOX buttons, in the enum's order
 }
 
 int selectedChannel(Window &w) {
@@ -447,13 +427,8 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         w = reinterpret_cast<Window *>(reinterpret_cast<CREATESTRUCT *>(lParam)->lpCreateParams);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(w));
         w->hwnd = hwnd;
-        NONCLIENTMETRICSW metrics = {};
-        metrics.cbSize = sizeof(metrics);
-        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0);
-        w->font = CreateFontIndirectW(&metrics.lfMessageFont);
-        LOGFONTW boldFont = metrics.lfMessageFont;
-        boldFont.lfWeight = FW_SEMIBOLD;
-        w->bold = CreateFontIndirectW(&boldFont);
+        uitheme::loadFonts(w->font, w->bold);
+        uitheme::applyDarkTitleBar(hwnd); // older Windows keep their light bar
 
         w->channelLabel = make(*w, L"STATIC", L"Channel:", SS_LEFT, 0);
         w->channel = make(*w, L"COMBOBOX", nullptr, WS_TABSTOP | CBS_DROPDOWNLIST, IdChannel);
@@ -487,7 +462,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         });
         w->disksLabel = make(*w, L"STATIC", L"USB stick:", SS_LEFT, 0);
         w->disks = make(*w, L"COMBOBOX", nullptr, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, IdDisks);
-        w->refresh = make(*w, L"BUTTON", L"Refresh", WS_TABSTOP | BS_PUSHBUTTON, IdRefresh);
+        w->refresh = make(*w, L"BUTTON", L"Refresh", WS_TABSTOP | BS_OWNERDRAW, IdRefresh);
         w->fixed = make(*w, L"BUTTON", L"Show USB hard drives too (some big sticks call themselves one)",
                         WS_TABSTOP | BS_AUTOCHECKBOX, IdFixed);
         w->status = make(*w, L"STATIC", L"", SS_LEFT, 0);
@@ -495,14 +470,16 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         w->verify = make(*w, L"BUTTON", L"Read the stick back afterwards and compare (recommended)",
                          WS_TABSTOP | BS_AUTOCHECKBOX, IdVerify);
         SendMessage(w->verify, BM_SETCHECK, w->defaults.verify ? BST_CHECKED : BST_UNCHECKED, 0);
-        w->write = make(*w, L"BUTTON", L"Write", WS_TABSTOP | BS_DEFPUSHBUTTON, IdWrite);
+        w->write = make(*w, L"BUTTON", L"Write", WS_TABSTOP | BS_OWNERDRAW, IdWrite);
 
         w->phaseLabel = make(*w, L"STATIC", L"", SS_LEFT | SS_ENDELLIPSIS, 0);
         SendMessage(w->phaseLabel, WM_SETFONT, reinterpret_cast<WPARAM>(w->bold), TRUE);
         w->phaseBar = make(*w, PROGRESS_CLASSW, nullptr, 0, 0);
         w->bar = make(*w, PROGRESS_CLASSW, nullptr, PBS_MARQUEE, 0);
+        uitheme::styleProgress(w->phaseBar);
+        uitheme::styleProgress(w->bar);
         w->log = make(*w, L"LISTBOX", nullptr, WS_VSCROLL | LBS_NOINTEGRALHEIGHT | LBS_NOSEL, 0, WS_EX_CLIENTEDGE);
-        w->action = make(*w, L"BUTTON", L"Stop", WS_TABSTOP | BS_PUSHBUTTON, IdAction);
+        w->action = make(*w, L"BUTTON", L"Stop", WS_TABSTOP | BS_OWNERDRAW, IdAction);
 
         layout(*w);
         showPage(*w, false);
@@ -512,27 +489,38 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
-        RECT hero = {0, 0, Width, HeroHeight};
-        if (w && w->hero) {
-            Gdiplus::Graphics g(dc);
-            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-            Gdiplus::Rect dest(0, 0, Width, HeroHeight);
-            g.DrawImage(w->hero, dest, 0, 90, 1280, 540, Gdiplus::UnitPixel);
-        } else {
-            HBRUSH navy = CreateSolidBrush(RGB(6, 26, 58));
-            FillRect(dc, &hero, navy);
-            DeleteObject(navy);
-            SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, RGB(232, 242, 255));
-            if (w)
-                SelectObject(dc, w->bold);
-            DrawTextW(dc, L"AutoBleem 2", -1, &hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
+        uitheme::paintHero(dc, Width, w ? w->hero : nullptr, w ? w->bold : nullptr);
         EndPaint(hwnd, &ps);
         return 0;
     }
     case WM_CTLCOLORSTATIC:
-        return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_BTNFACE));
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLORLISTBOX:
+    case WM_CTLCOLOREDIT: {
+        // the dark look; the combo boxes are not touched (the system draws them)
+        LRESULT brush = 0;
+        if (uitheme::controlColor(msg, reinterpret_cast<HDC>(wParam), reinterpret_cast<HWND>(lParam), brush))
+            return brush;
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+    case WM_DRAWITEM: {
+        const DRAWITEMSTRUCT *item = reinterpret_cast<const DRAWITEMSTRUCT *>(lParam);
+        if (!w || !item || item->CtlType != ODT_BUTTON)
+            return FALSE;
+        const UINT defaultId = w->progressPage ? IdAction : IdWrite;
+        uitheme::drawButton(*item, w->bold, item->CtlID == defaultId);
+        return TRUE;
+    }
+    case WM_NOTIFY: {
+        const NMHDR *header = reinterpret_cast<const NMHDR *>(lParam);
+        if (w && header && header->code == NM_CUSTOMDRAW && isCheckbox(static_cast<int>(header->idFrom)))
+            return uitheme::drawCheckbox(*reinterpret_cast<const NMCUSTOMDRAW *>(lParam), w->font);
+        return 0;
+    }
+    case DM_GETDEFID:
+        // Enter presses the default button, as the old BS_DEFPUSHBUTTON did (the owner-drawn buttons carry
+        // no default style)
+        return w ? MAKELONG(w->progressPage ? IdAction : IdWrite, DC_HASDEFID) : 0;
     case WM_DEVICECHANGE:
         // a stick plugged in or pulled out
         if (w && !w->progressPage && (wParam == 0x8000 /*DBT_DEVICEARRIVAL*/ || wParam == 0x8004 /*REMOVECOMPLETE*/))
@@ -616,15 +604,17 @@ int runFlasherWindow(const FlashOptions &defaults) {
     w.defaults = defaults;
     Gdiplus::GdiplusStartupInput gdiplusInput;
     Gdiplus::GdiplusStartup(&w.gdiplusToken, &gdiplusInput, nullptr);
-    w.hero = loadHero();
+    w.hero = uitheme::loadHero(); // null = no picture in the exe: paintHero draws the fallback
 
     WNDCLASSW wc = {};
     wc.lpfnWndProc = windowProc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.lpszClassName = WindowClass;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
-    wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hbrBackground = uitheme::graphiteBrush();
+    wc.hIcon = LoadIcon(wc.hInstance, MAKEINTRESOURCE(1)); // the autobleem.ico of the .rc
+    if (!wc.hIcon)
+        wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassW(&wc);
 
     HWND hwnd = CreateWindowExW(0, WindowClass,

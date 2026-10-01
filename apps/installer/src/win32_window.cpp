@@ -683,7 +683,9 @@ int runInstallerWindow(const InstallOptions &defaults) {
     wc.lpszClassName = WindowClass;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = uitheme::graphiteBrush();
-    wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hIcon = LoadIcon(wc.hInstance, MAKEINTRESOURCE(1)); // the autobleem.ico of the .rc
+    if (!wc.hIcon)
+        wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassA(&wc);
 
     HWND hwnd = CreateWindowExW(
