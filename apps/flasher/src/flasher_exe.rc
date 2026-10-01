@@ -5,7 +5,7 @@
 #include "../../common/ui_theme_ids.h"
 
 1 24 "flasher.manifest"
-1 ICON "../../common/autobleem.ico"
+1 ICON "../../common/icons/AutoBleemFlasher.ico"
 UI_RES_FONT_MEDIUM RCDATA "../../common/resources/RedHatText-Medium.ttf"
 UI_RES_FONT_SEMIBOLD RCDATA "../../common/resources/RedHatText-SemiBold.ttf"
 // the hero of this program: hero-flasher.png from autobleem-design (themes/ab2.0.0/design/pcinstall)

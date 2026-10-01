@@ -18,10 +18,10 @@ target_link_libraries(installer ab_installer Threads::Threads ${CMAKE_DL_LIBS})
 if (WIN32)
     # a GUI-subsystem exe (no console window when double-clicked; --quiet attaches to the parent's), the
     # manifest and the picture as resources, and everything static: nothing of MSYS2 is needed next to it
-    # installer_exe.rc: the manifest, the shared look's fonts (ui_theme) and this program's hero
+    # installer_exe.rc: the manifest, the icon, the shared look's fonts (ui_theme) and this program's hero
     target_sources(installer PRIVATE src/installer_exe.rc)
     set_source_files_properties(src/installer_exe.rc PROPERTIES OBJECT_DEPENDS
-            "${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-installer.png;${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-installer@2x.png;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-SemiBold.ttf")
+            "${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-installer.png;${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-installer@2x.png;${CMAKE_CURRENT_SOURCE_DIR}/../common/icons/AutoBleemInstaller.ico;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-SemiBold.ttf")
     target_link_libraries(installer ui_theme comctl32 user32 gdi32 gdiplus ole32 wininet)
     # the fonts' licence (SIL OFL) next to the exe, and so in the release bundle (make_installer_bundle.sh)
     add_custom_command(TARGET installer POST_BUILD
@@ -50,7 +50,7 @@ if (WIN32)
     # winsetup_exe.rc: the manifest, the icon, the shared look's fonts (ui_theme) and this program's hero
     target_sources(winsetup PRIVATE src/winsetup_exe.rc)
     set_source_files_properties(src/winsetup_exe.rc PROPERTIES OBJECT_DEPENDS
-            "${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-winsetup.png;${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-winsetup@2x.png;${CMAKE_CURRENT_SOURCE_DIR}/../common/autobleem.ico;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-SemiBold.ttf")
+            "${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-winsetup.png;${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-winsetup@2x.png;${CMAKE_CURRENT_SOURCE_DIR}/../common/icons/AutoBleemWinSetup.ico;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-SemiBold.ttf")
     target_link_libraries(winsetup ui_theme comctl32 user32 gdi32 gdiplus ole32 shell32 wininet)
     # the fonts' licence (SIL OFL) next to the exe
     add_custom_command(TARGET winsetup POST_BUILD

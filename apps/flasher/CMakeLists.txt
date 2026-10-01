@@ -20,7 +20,7 @@ if (WIN32)
     # flasher_exe.rc: the manifest, the icon, the shared look's fonts (ui_theme) and this program's hero
     target_sources(flasher PRIVATE src/flasher_exe.rc)
     set_source_files_properties(src/flasher_exe.rc PROPERTIES OBJECT_DEPENDS
-            "${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-flasher.png;${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-flasher@2x.png;${CMAKE_CURRENT_SOURCE_DIR}/../common/autobleem.ico;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-SemiBold.ttf")
+            "${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-flasher.png;${CMAKE_CURRENT_SOURCE_DIR}/ui/hero-flasher@2x.png;${CMAKE_CURRENT_SOURCE_DIR}/../common/icons/AutoBleemFlasher.ico;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/../common/resources/RedHatText-SemiBold.ttf")
     target_link_libraries(flasher ui_theme comctl32 comdlg32 user32 gdi32 gdiplus ole32 wininet)
     # the fonts' licence (SIL OFL) next to the exe
     add_custom_command(TARGET flasher POST_BUILD
