@@ -1,17 +1,18 @@
 //
 // AutoBleemFlasher: the PC USB stick's image onto a stick, from Windows. The image is a channel's from the
-// download site (release, testing or nightly) or an .img.xz on this PC; it is decoded as it is written,
-// and read back and compared afterwards. The job is autobleem-core's FlasherJob; this is the program
-// around it - the window, or a line for scripts. Writing a whole disk needs administrator rights, which
-// the manifest asks for (the one AutoBleem program that does).
+// download site (release, testing, nightly or preview - the site's channels.json) or an .img.xz on this PC; it is
+// decoded as it is written, and read back and compared afterwards. The job is autobleem-core's FlasherJob; this is the
+// program around it - the window, or a line for scripts. Writing a whole disk needs administrator rights, which the
+// manifest asks for (the one AutoBleem program that does).
 //
 //   AutoBleemFlasher.exe                               the window
 //   AutoBleemFlasher.exe --list                        the disks it would offer, and those it would not
 //   AutoBleemFlasher.exe --quiet --disk N --yes        no window: write disk N
-//       [--channel release|testing|nightly | --image FILE.img.xz] [--no-verify] [--repo URL]
+//       [--channel release|testing|nightly|preview | --image FILE.img.xz] [--no-verify] [--repo URL]
 //       [--allow-fixed]  a USB hard drive too (left out otherwise: only a stick or a card is offered)
 //
 #include "installer/flasher_job.h"
+#include "channel_choice.h"
 #include "core/services/environment.h"
 #include "core/version.h"
 
@@ -49,10 +50,11 @@ public:
 };
 
 int usage() {
-    cout << "USAGE: AutoBleemFlasher [--list]\n"
-            "       AutoBleemFlasher --quiet --disk N --yes [--channel release|testing|nightly | --image FILE]\n"
-            "                        [--no-verify] [--repo URL] [--allow-fixed]"
-         << endl;
+    cout
+        << "USAGE: AutoBleemFlasher [--list]\n"
+           "       AutoBleemFlasher --quiet --disk N --yes [--channel release|testing|nightly|preview | --image FILE]\n"
+           "                        [--no-verify] [--repo URL] [--allow-fixed]"
+        << endl;
     return EXIT_FAILURE;
 }
 
@@ -63,7 +65,7 @@ int main(int argc, char *argv[]) {
     int diskNumber = -1;
     FlashOptions options;
     // the channel the flasher itself was built on, unless asked
-    options.channel = Version::isBetweenTags() ? "nightly" : Version::isPreRelease() ? "testing" : "release";
+    options.channel = channelchoice::builtFor();
     for (int i = 1; i < argc; i++) {
         string arg = argv[i];
         auto value = [&](string &into) {
@@ -122,6 +124,9 @@ int main(int argc, char *argv[]) {
         WinInetDownloader downloader;
         WindowsDisk target(d);
         string error;
+        if (options.imageFile.empty())
+            options.channelIndexes =
+                channelchoice::fetch(options.repoUrl, downloader, options.scratchDir).lists(options.channel, true);
         bool ok = FlasherJob::run(options, downloader, target, listener, []() { return false; }, error);
         if (!ok)
             cout << "FAILED: " << error << endl;

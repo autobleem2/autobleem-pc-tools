@@ -1,6 +1,6 @@
 //
 // The flasher window - see the header. Two pages under the picture: the questions and the progress. The
-// three channels are looked up once in the background when the window opens; the write runs on a
+// site's channels (channels.json) are looked up once in the background when the window opens; the write runs on a
 // std::thread reporting into a mutex-guarded State, which a 100 ms timer moves into the controls.
 //
 #ifdef _WIN32
@@ -8,6 +8,7 @@
 #include "flasher_window.h"
 #include "win32_disk.h"
 #include "ui_theme.h"
+#include "channel_choice.h"
 
 #include "../../installer/src/win32_platform.h"
 #include "core/services/environment.h"
@@ -54,10 +55,8 @@ enum Ids {
 const int Width = 640;
 const int HeroHeight = uitheme::HeroHeight; // the 640x150 picture and the 1 px cyan line under it
 const int Margin = 14;
-const int Channels = 3; // the dropdown's release, testing, nightly - then "An image file on this PC..."
-const char *const ChannelNames[Channels] = {"release", "testing", "nightly"};
-const wchar_t *const ChannelLabels[Channels + 1] = {L"Release", L"Testing (the next release)",
-                                                    L"Nightly (development build)", L"An image file on this PC..."};
+// the dropdown lists the site's channels, then this
+const wchar_t *const ImageFileLabel = L"An image file on this PC...";
 const UINT WmChannelsLooked = WM_APP + 1;
 
 // the folder a channel's image is downloaded to and kept in, for the next stick
@@ -137,8 +136,10 @@ struct Window {
     string imageFile; // the dropdown's fourth choice
     vector<PhysicalDisk> diskList;
     mutex channelsMutex;
-    ChannelImage channels[Channels];
-    string channelErrors[Channels];
+    ableem::ChannelCatalog catalog = ableem::ChannelCatalog::builtIn(); // the site's channels.json once read
+    vector<ChannelImage> channels = vector<ChannelImage>(3);            // what each offers, in the catalog's order
+    vector<string> channelErrors = vector<string>(3);
+    bool channelPicked = false; // the user chose in the box: the lookup does not move the selection
     atomic<bool> looked{false};
     thread lookup;
     State state;
@@ -177,7 +178,33 @@ bool isCheckbox(int id) {
 
 int selectedChannel(Window &w) {
     int i = static_cast<int>(SendMessage(w.channel, CB_GETCURSEL, 0, 0));
-    return i < 0 || i > Channels ? 0 : i;
+    return i < 0 ? 0 : i;
+}
+
+// the box's last choice - the image file - sits after the site's channels
+bool isImageChoice(Window &w, int choice) {
+    lock_guard<mutex> lock(w.channelsMutex);
+    return static_cast<size_t>(choice) >= w.catalog.channels.size();
+}
+
+string channelId(Window &w, int choice) {
+    lock_guard<mutex> lock(w.channelsMutex);
+    return static_cast<size_t>(choice) < w.catalog.channels.size() ? w.catalog.channels[static_cast<size_t>(choice)].id
+                                                                   : w.defaults.channel;
+}
+
+// the box from the catalog, then the image file; the selection on `wanted` (else the first channel), or on the
+// image file when `imageFile` says so
+void fillChannels(Window &w, const string &wanted, bool imageFile) {
+    lock_guard<mutex> lock(w.channelsMutex);
+    SendMessage(w.channel, CB_RESETCONTENT, 0, 0);
+    for (const ableem::ChannelEntry &e : w.catalog.channels)
+        SendMessageW(w.channel, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(channelchoice::label(e)).c_str()));
+    SendMessageW(w.channel, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(ImageFileLabel));
+    SendMessage(w.channel, CB_SETCURSEL,
+                imageFile ? static_cast<int>(w.catalog.channels.size())
+                          : static_cast<int>(channelchoice::initialIndex(w.catalog, wanted)),
+                0);
 }
 
 const PhysicalDisk *selectedDisk(Window &w) {
@@ -203,7 +230,7 @@ void describe(Window &w) {
     const PhysicalDisk *disk = selectedDisk(w);
     string what;
     bool canWrite = true;
-    if (ch == Channels) {
+    if (isImageChoice(w, ch)) {
         what = w.imageFile.empty() ? "No image file chosen." : "The image " + w.imageFile + ".";
         canWrite = !w.imageFile.empty();
     } else if (!w.looked.load()) {
@@ -211,14 +238,20 @@ void describe(Window &w) {
         canWrite = false;
     } else {
         lock_guard<mutex> lock(w.channelsMutex);
-        const ChannelImage &ci = w.channels[ch];
+        const string id = static_cast<size_t>(ch) < w.catalog.channels.size()
+                              ? w.catalog.channels[static_cast<size_t>(ch)].id
+                              : string();
+        const ChannelImage ci =
+            static_cast<size_t>(ch) < w.channels.size() ? w.channels[static_cast<size_t>(ch)] : ChannelImage();
         if (ci.version.empty()) {
-            what = "The " + string(ChannelNames[ch]) + " channel has no stick image: " + w.channelErrors[ch] +
+            what = "The " + id + " channel has no stick image: " +
+                   (static_cast<size_t>(ch) < w.channelErrors.size() ? w.channelErrors[static_cast<size_t>(ch)]
+                                                                     : string()) +
                    ". Pick another channel, or check the internet connection.";
             canWrite = false;
         } else {
-            what = "AutoBleem " + ci.version + " from the " + ChannelNames[ch] + " channel - a " +
-                   humanSize(ci.image.size) + " download.";
+            what = "AutoBleem " + ci.version + " from the " + id + " channel - a " + humanSize(ci.image.size) +
+                   " download.";
         }
     }
     if (!disk) {
@@ -334,14 +367,17 @@ void startWrite(Window &w) {
     FlashOptions o = w.defaults;
     const int ch = selectedChannel(w);
     string what;
-    if (ch == Channels) {
+    if (isImageChoice(w, ch)) {
         o.imageFile = w.imageFile;
         what = "the image " + w.imageFile.substr(w.imageFile.find_last_of('/') + 1);
     } else {
         o.imageFile.clear();
-        o.channel = ChannelNames[ch];
+        o.channel = channelId(w, ch);
         lock_guard<mutex> lock(w.channelsMutex);
-        what = "AutoBleem " + w.channels[ch].version + " (" + o.channel + ")";
+        o.channelIndexes = w.catalog.lists(o.channel, true);
+        what = "AutoBleem " +
+               (static_cast<size_t>(ch) < w.channels.size() ? w.channels[static_cast<size_t>(ch)].version : string()) +
+               " (" + o.channel + ")";
     }
     o.verify = SendMessage(w.verify, BM_GETCHECK, 0, 0) == BST_CHECKED;
     if (o.scratchDir.empty())
@@ -440,32 +476,29 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         w->channelLabel = make(*w, L"STATIC", L"Channel:", SS_LEFT, 0);
         w->channel = make(*w, L"COMBOBOX", nullptr, WS_TABSTOP | CBS_DROPDOWNLIST, IdChannel);
-        for (const wchar_t *label : ChannelLabels)
-            SendMessageW(w->channel, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
-        int initial = 0;
-        for (int i = 0; i < Channels; i++)
-            if (w->defaults.channel == ChannelNames[i])
-                initial = i;
-        if (!w->defaults.imageFile.empty()) {
+        if (!w->defaults.imageFile.empty())
             w->imageFile = w->defaults.imageFile;
-            initial = Channels;
-        }
-        SendMessage(w->channel, CB_SETCURSEL, initial, 0);
-        // the three channels' images, off the UI thread (three small downloads)
+        fillChannels(*w, w->defaults.channel,
+                     !w->imageFile.empty()); // the built-in three until the site's list is read
+        // the site's channel list and each channel's image, off the UI thread (small downloads)
         w->lookup = thread([w]() {
-            for (int i = 0; i < Channels; i++) {
-                WinInetDownloader downloader;
-                ChannelImage ci;
-                string error;
-                bool ok = FlasherJob::channelImage(w->defaults.repoUrl, ChannelNames[i], downloader, scratchDirectory(),
-                                                   ci, error);
-                lock_guard<mutex> lock(w->channelsMutex);
-                if (ok)
-                    w->channels[i] = ci;
-                else
-                    w->channelErrors[i] = error;
+            WinInetDownloader downloader;
+            const ableem::ChannelCatalog catalog =
+                channelchoice::fetch(w->defaults.repoUrl, downloader, scratchDirectory());
+            vector<ChannelImage> images(catalog.channels.size());
+            vector<string> errors(catalog.channels.size());
+            for (size_t i = 0; i < catalog.channels.size(); i++) {
+                const string &id = catalog.channels[i].id;
+                if (!FlasherJob::channelImage(w->defaults.repoUrl, id, catalog.lists(id, true), downloader,
+                                              scratchDirectory(), images[i], errors[i]))
+                    images[i] = ChannelImage();
             }
-            w->looked.store(true);
+            {
+                lock_guard<mutex> lock(w->channelsMutex);
+                w->catalog = catalog;
+                w->channels = images;
+                w->channelErrors = errors;
+            }
             PostMessage(w->hwnd, WmChannelsLooked, 0, 0);
         });
         w->disksLabel = make(*w, L"STATIC", L"USB stick:", SS_LEFT, 0);
@@ -535,8 +568,16 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             refreshDisks(*w);
         return TRUE;
     case WmChannelsLooked:
-        if (w && !w->progressPage)
-            describe(*w);
+        if (w) {
+            // the site's list replaces the built-in one; the user's own pick (the image file too) stays, else
+            // the program's default
+            const int now = selectedChannel(*w);
+            const bool image = isImageChoice(*w, now) && !(w->imageFile.empty() && !w->channelPicked);
+            fillChannels(*w, w->channelPicked ? channelId(*w, now) : w->defaults.channel, image);
+            w->looked.store(true);
+            if (!w->progressPage)
+                describe(*w);
+        }
         return 0;
     case WM_TIMER:
         if (w)
@@ -548,7 +589,8 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         switch (LOWORD(wParam)) {
         case IdChannel:
             if (HIWORD(wParam) == CBN_SELCHANGE) {
-                if (selectedChannel(*w) == Channels)
+                w->channelPicked = true;
+                if (isImageChoice(*w, selectedChannel(*w)))
                     chooseImageFile(*w);
                 describe(*w);
             }
