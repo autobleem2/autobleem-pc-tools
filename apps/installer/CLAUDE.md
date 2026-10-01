@@ -72,14 +72,26 @@ README only (autobleem-appliance's `assemble-psc.sh`).
   sizes, an unformatted one flagged; `formatDrive()` - Windows' `format.com /FS:FAT32|exFAT /Q /V:SONY
   /Y` through a pipe, or `fat32format.exe` next to the exe for FAT32 above 32 GB, which `format.com`
   refuses; `WinInetDownloader` - `InternetOpenUrl`/`InternetReadFile` with the content length for the
-  progress, HTTP status checked, a short download rejected) and `win32_window.*`: one 640-wide window,
-  the launcher's return splash (`src/resources/splash/autobleem.jpg`, RCDATA 1 in `installer.rc`, drawn
-  with GDI+ - rows 90..630 of it) on top, then either the questions (the drive box + Refresh + FAT32/exFAT
+  progress, HTTP status checked, a short download rejected) and `win32_window.*`: one 640-wide window
+  in the dark v02b look (2026-10-01, PLATFORM-16; the look itself is `apps/common/ui_theme.*`, below),
+  the 640x150 hero (`ui/hero-installer.png` and `@2x`, RCDATA `UI_RES_HERO`/`UI_RES_HERO_2X` in
+  `installer_exe.rc`, drawn with GDI+) and a cyan line on top, then either the questions (the drive box + Refresh + FAT32/exFAT
   + Format..., a bold status line - fresh install / update from which version / not FAT32 / no package -
   the three cover checkboxes, RetroArch, BIOS (enabled only with RetroArch chosen or present), samples,
   Install/Update) or the progress (Step n of N, a bar for the steps, a bar for the step, the log, Stop /
   Close / Back). A format or an install runs on a `std::thread` into a mutex-guarded `State`, a 100 ms
   timer moves it into the controls; a finished format returns to the questions with the drives re-read.
+
+**The shared look - `apps/common/ui_theme.*`** (static lib `ui_theme`, Windows only; design:
+autobleem-design `themes/ab2.0.0/design/pcinstall/README.md`): palette constants, `loadFonts()` (Red Hat
+Text Medium + SemiBold from RCDATA `UI_RES_FONT_MEDIUM`/`_SEMIBOLD`, ids in `ui_theme_ids.h`, Segoe UI
+when they fail; the SIL OFL text `apps/common/resources/RedHatText-OFL.txt` is copied next to the exe and
+into the bundle), `applyDarkTitleBar()` (DWM, loaded dynamically), `loadHero()`/`paintHero()`,
+`controlColor()` (WM_CTLCOLOR* for labels, the log, edits; combos untouched), `drawButton()`
+(`BS_OWNERDRAW`, cut corners, magenta default/focused), `drawCheckbox()` (NM_CUSTOMDRAW),
+`styleProgress()` (theme off, cyan on dark). The owner-drawn buttons carry no default style, so the
+window answers `DM_GETDEFID`. AutoBleemWinSetup and AutoBleemFlasher move to it next (`installer.rc`
+stays theirs until then).
 
 Built on the dev hosts only (root `CMakeLists.txt`, next to UpdateRoms). Verified 2026-09-20 on the PC:
 41/41 tests; a `--quiet` install of the pre-release package into a folder over the real site (the

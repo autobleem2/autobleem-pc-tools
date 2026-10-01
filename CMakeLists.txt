@@ -28,6 +28,7 @@ set(AB_CORE_UI OFF CACHE BOOL "" FORCE)       # SDL-free: the Win32 tools need o
                                               # has no UCRT SDL2 - so core builds ableem_engine + ab_core only
 add_subdirectory(autobleem-core)
 
+add_subdirectory(apps/common)    # ui_theme: the installers' shared dark look (Windows only)
 add_subdirectory(apps/updateroms)
 add_subdirectory(apps/installer)
 add_subdirectory(apps/flasher)

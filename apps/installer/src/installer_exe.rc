@@ -1,0 +1,12 @@
+// AutoBleemInstaller.exe's resources: the manifest (common controls v6 - the custom-drawn checkboxes and the
+// progress bars - and DPI awareness), the shared look's two fonts (Red Hat Text, SIL OFL - the licence text
+// ships next to the exe as RedHatText-OFL.txt) and this program's hero (apps/installer/ui, 640x150 and the 2x).
+// AutoBleemWinSetup keeps installer.rc until it moves to the same look.
+#include "../../common/ui_theme_ids.h"
+
+1 24 "installer.manifest"
+UI_RES_FONT_MEDIUM RCDATA "../../common/resources/RedHatText-Medium.ttf"
+UI_RES_FONT_SEMIBOLD RCDATA "../../common/resources/RedHatText-SemiBold.ttf"
+// the hero of this program: hero-installer.png from autobleem-design (themes/ab2.0.0/design/pcinstall)
+UI_RES_HERO RCDATA "../ui/hero-installer.png"
+UI_RES_HERO_2X RCDATA "../ui/hero-installer@2x.png"

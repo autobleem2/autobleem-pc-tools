@@ -49,6 +49,7 @@ rm -rf "$BUILD/bundle"
 mkdir -p "$STAGE" "$OUT"
 cp "$EXE" "$STAGE/AutoBleemInstaller.exe"
 cp -r apps/installer/resources/. "$STAGE/"
+cp apps/common/resources/RedHatText-OFL.txt "$STAGE/" # the licence of the font inside the exe
 cp "$PACKAGE" "$STAGE/$NAME"
 # a fresh build is stripped here; one from --exe already is
 if [ "$EXE" = "$BUILD/apps/installer/AutoBleemInstaller.exe" ]; then
