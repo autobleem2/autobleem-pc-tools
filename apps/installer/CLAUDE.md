@@ -131,3 +131,12 @@ files later.
   `RetroArch/bin/system`), **the samples** (`RetroArch/roms` and `RetroArch/bin/thumbnails`, the
   Windows layout). Verified against the live site with both fallbacks (RetroArch 1.22.2 unpacked in
   47 s, 237 cores in 3 min), and the installer end to end on the PC: the wizard, then `/S` as an update.
+
+**The channel list is the site's** (PLATFORM-20): the window first fetches `<site>/channels.json`
+(`apps/common/channel_choice`, autobleem-core's `ableem::ChannelCatalog`: id, label, index, images, unstable -
+autobleem-repo's `repo_index.py` writes it, a channel only when its json exists) and fills the box from it, each
+channel read through its own `index` (then the stable channels before it, as the built-in three always fell back).
+Offline or a bad file: the built-in release/testing/nightly, quietly. The default is the channel this build is
+(`preview-...` version = preview, between tags nightly, a pre-release tag testing, else release), the first entry
+when the site does not list it; `--channel ID` takes any id the site lists. The Flasher does the same, reading each
+channel's `images` file (`pc/images/<id>.json`) or its `index`.

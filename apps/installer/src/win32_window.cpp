@@ -9,6 +9,7 @@
 #include "win32_window.h"
 #include "win32_platform.h"
 #include "ui_theme.h"
+#include "channel_choice.h"
 
 #include "core/services/environment.h"
 #include "core/version.h"
@@ -40,7 +41,7 @@ namespace {
 const char *const WindowClass = "AutoBleemInstaller";
 const int IdTimer = 1;
 
-// a scratch folder for the channel lookups (three small catalogs)
+// a scratch folder for the channel lookups (the channel list and one small catalog each)
 std::string tempDirectory() {
     char path[MAX_PATH] = {0};
     DWORD n = GetTempPathA(MAX_PATH, path);
@@ -146,11 +147,13 @@ struct Window {
     ULONG_PTR gdiplusToken = 0;
     vector<RemovableDrive> driveList;
     InstallOptions defaults;
-    // what the site's three channels offer a stick, looked up once in the background when the window opens
-    // (index = the dropdown's: release, testing, nightly); looked = the lookup is done
+    // the site's channels (channels.json; the built-in three until it is read) and what each offers a stick, looked
+    // up once in the background when the window opens (index = the dropdown's); looked = the lookup is done
     std::mutex channelsMutex;
-    ChannelRelease channels[3];
-    std::string channelErrors[3];
+    ableem::ChannelCatalog catalog = ableem::ChannelCatalog::builtIn();
+    std::vector<ChannelRelease> channels = std::vector<ChannelRelease>(3);
+    std::vector<std::string> channelErrors = std::vector<std::string>(3);
+    bool channelPicked = false; // the user chose a channel: the lookup does not move the selection
     std::atomic<bool> looked{false};
     thread lookup;
     StickInfo info;
@@ -186,20 +189,33 @@ bool isCheckbox(int id) {
     return id >= IdCoversJ && id <= IdSamples; // the six BS_AUTOCHECKBOX buttons, in the enum's order
 }
 
-const char *const ChannelNames[3] = {"release", "testing", "nightly"};
-const wchar_t *const ChannelLabels[3] = {L"Release", L"Testing (the next release)", L"Nightly (development build)"};
 const UINT WmChannelsLooked = WM_APP + 1;
 
 int selectedChannel(Window &w) {
     int i = static_cast<int>(SendMessage(w.channel, CB_GETCURSEL, 0, 0));
-    return i < 0 || i > 2 ? 0 : i;
+    return i < 0 ? 0 : i;
+}
+
+// the combo box from the catalog, the selection on `wanted` (else the first entry)
+void fillChannels(Window &w, const string &wanted) {
+    std::lock_guard<std::mutex> lock(w.channelsMutex);
+    SendMessage(w.channel, CB_RESETCONTENT, 0, 0);
+    for (const ableem::ChannelEntry &e : w.catalog.channels)
+        SendMessageW(w.channel, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(channelchoice::label(e)).c_str()));
+    SendMessage(w.channel, CB_SETCURSEL, static_cast<int>(channelchoice::initialIndex(w.catalog, wanted)), 0);
+}
+
+// the id of the channel selected now
+string selectedChannelId(Window &w) {
+    const size_t i = static_cast<size_t>(selectedChannel(w));
+    std::lock_guard<std::mutex> lock(w.channelsMutex);
+    return i < w.catalog.channels.size() ? w.catalog.channels[i].id : w.defaults.channel;
 }
 
 void showPage(Window &w, bool progress) {
     w.progressPage = progress;
     for (HWND h : {w.channelLabel, w.channel, w.drivesLabel, w.drives, w.refresh, w.formatFs, w.format, w.status,
-                   w.coversLabel, w.coversJ,
-                   w.coversU, w.coversP, w.retroarch, w.bios, w.samples, w.install})
+                   w.coversLabel, w.coversJ, w.coversU, w.coversP, w.retroarch, w.bios, w.samples, w.install})
         ShowWindow(h, progress ? SW_HIDE : SW_SHOW);
     for (HWND h : {w.phaseLabel, w.phaseBar, w.bar, w.log, w.action})
         ShowWindow(h, progress ? SW_SHOW : SW_HIDE);
@@ -225,8 +241,10 @@ void describeStick(Window &w) {
         offered = InstallerJob::inspect(w.defaults).packageVersion;
     } else {
         std::lock_guard<std::mutex> lock(w.channelsMutex);
-        offered = w.channels[ch].version;
-        channelError = w.channelErrors[ch];
+        if (static_cast<size_t>(ch) < w.channels.size()) {
+            offered = w.channels[static_cast<size_t>(ch)].version;
+            channelError = w.channelErrors[static_cast<size_t>(ch)];
+        }
     }
     if (root.empty()) {
         text = "No removable drive. Plug the stick in and press Refresh.";
@@ -246,7 +264,8 @@ void describeStick(Window &w) {
                    " is on this stick: it will be updated to " + offered +
                    ". Games, saves, memory cards and settings stay.";
             if (!w.info.installedVersion.empty() && w.info.installedVersion == offered)
-                text = "AutoBleem " + offered + " is on this stick already - Update installs it again "
+                text = "AutoBleem " + offered +
+                       " is on this stick already - Update installs it again "
                        "(games, saves, memory cards and settings stay).";
             canInstall = true;
         } else {
@@ -268,7 +287,7 @@ void describeStick(Window &w) {
         text = "Asking the download site what each channel offers...";
         canInstall = false;
     } else if (offered.empty()) {
-        text = "The " + string(ChannelNames[ch]) + " channel has nothing to install: " + channelError +
+        text = "The " + selectedChannelId(w) + " channel has nothing to install: " + channelError +
                ". Pick another channel, or check the internet connection.";
         canInstall = false;
     }
@@ -349,8 +368,11 @@ void layout(Window &w) {
 void startInstall(Window &w) {
     InstallOptions o = w.defaults;
     o.root = selectedRoot(w);
-    if (o.packageFile.empty())
-        o.channel = ChannelNames[selectedChannel(w)];
+    if (o.packageFile.empty()) {
+        o.channel = selectedChannelId(w);
+        std::lock_guard<std::mutex> lock(w.channelsMutex);
+        o.channelIndexes = w.catalog.lists(o.channel, false);
+    }
     o.coversJapan = checked(w.coversJ);
     o.coversUsa = checked(w.coversU);
     o.coversPal = checked(w.coversP);
@@ -497,33 +519,28 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         w->channelLabel = make(*w, L"STATIC", L"Channel:", SS_LEFT, 0);
         w->channel = make(*w, L"COMBOBOX", nullptr, WS_TABSTOP | CBS_DROPDOWNLIST, IdChannel);
-        for (const wchar_t *label : ChannelLabels)
-            SendMessageW(w->channel, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
-        {
-            int initial = 0;
-            for (int i = 0; i < 3; i++)
-                if (w->defaults.channel == ChannelNames[i])
-                    initial = i;
-            SendMessage(w->channel, CB_SETCURSEL, initial, 0);
-        }
+        fillChannels(*w, w->defaults.channel); // the built-in three until the site's list is read
         EnableWindow(w->channel, w->defaults.packageFile.empty());
-        // the three channels' offers, off the UI thread (three small downloads)
+        // the site's channel list and each channel's offer, off the UI thread (small downloads)
         if (w->defaults.packageFile.empty()) {
             w->lookup = thread([w]() {
-                for (int i = 0; i < 3; i++) {
-                    WinInetDownloader downloader;
-                    ChannelRelease rel;
-                    string error;
-                    const string scratch = tempDirectory();
-                    bool ok = InstallerJob::channelRelease(w->defaults.repoUrl, ChannelNames[i], downloader, scratch,
-                                                           rel, error);
-                    std::lock_guard<std::mutex> lock(w->channelsMutex);
-                    if (ok)
-                        w->channels[i] = rel;
-                    else
-                        w->channelErrors[i] = error;
+                WinInetDownloader downloader;
+                const string scratch = tempDirectory();
+                const ableem::ChannelCatalog catalog = channelchoice::fetch(w->defaults.repoUrl, downloader, scratch);
+                vector<ChannelRelease> offers(catalog.channels.size());
+                vector<string> errors(catalog.channels.size());
+                for (size_t i = 0; i < catalog.channels.size(); i++) {
+                    const string &id = catalog.channels[i].id;
+                    if (!InstallerJob::channelRelease(w->defaults.repoUrl, id, catalog.lists(id, false), downloader,
+                                                      scratch, offers[i], errors[i]))
+                        offers[i] = ChannelRelease();
                 }
-                w->looked.store(true);
+                {
+                    std::lock_guard<std::mutex> lock(w->channelsMutex);
+                    w->catalog = catalog;
+                    w->channels = offers;
+                    w->channelErrors = errors;
+                }
                 PostMessage(w->hwnd, WmChannelsLooked, 0, 0);
             });
         } else {
@@ -550,7 +567,8 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                        WS_TABSTOP | BS_AUTOCHECKBOX, IdBios);
         w->samples = make(*w, L"BUTTON", L"Add the sample games (free homebrew, so the shelf is not empty)",
                           WS_TABSTOP | BS_AUTOCHECKBOX, IdSamples);
-        w->install = make(*w, L"BUTTON", L"Install", WS_TABSTOP | BS_OWNERDRAW, IdInstall); // the default one: DM_GETDEFID
+        w->install =
+            make(*w, L"BUTTON", L"Install", WS_TABSTOP | BS_OWNERDRAW, IdInstall); // the default one: DM_GETDEFID
         for (HWND h : {w->coversJ, w->coversU, w->coversP})
             setChecked(h, true);
 
@@ -604,8 +622,13 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // BS_DEFPUSHBUTTON did (the owner-drawn buttons carry no default style)
         return w ? MAKELONG(w->progressPage ? IdAction : IdInstall, DC_HASDEFID) : 0;
     case WmChannelsLooked:
-        if (w && !w->progressPage)
-            describeStick(*w);
+        if (w) {
+            // the site's list replaces the built-in one; the user's own pick stays, else the program's default
+            fillChannels(*w, w->channelPicked ? selectedChannelId(*w) : w->defaults.channel);
+            w->looked.store(true);
+            if (!w->progressPage)
+                describeStick(*w);
+        }
         return 0;
     case WM_TIMER:
         if (w)
@@ -617,8 +640,11 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         switch (LOWORD(wParam)) {
         case IdDrives:
         case IdChannel:
-            if (HIWORD(wParam) == CBN_SELCHANGE)
+            if (HIWORD(wParam) == CBN_SELCHANGE) {
+                if (LOWORD(wParam) == IdChannel)
+                    w->channelPicked = true;
                 describeStick(*w);
+            }
             break;
         case IdRefresh:
             refreshDrives(*w);
@@ -700,8 +726,8 @@ int runInstallerWindow(const InstallOptions &defaults) {
     HWND hwnd = CreateWindowExW(
         0, L"AutoBleemInstaller",
         wide("AutoBleem 2 " + Env::productVersion() + " - install onto a PlayStation Classic stick").c_str(),
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, uitheme::px(Width), 600, nullptr,
-        nullptr, wc.hInstance, &w);
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, uitheme::px(Width), 600,
+        nullptr, nullptr, wc.hInstance, &w);
     if (!hwnd) {
         PLOG_ERROR << "CreateWindow failed: " << GetLastError();
         return 1;

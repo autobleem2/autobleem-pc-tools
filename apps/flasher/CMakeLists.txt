@@ -14,7 +14,7 @@ add_executable(flasher
         ../installer/src/win32_platform.h
 )
 set_target_properties(flasher PROPERTIES OUTPUT_NAME AutoBleemFlasher)
-target_link_libraries(flasher ab_installer Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(flasher channel_choice ab_installer Threads::Threads ${CMAKE_DL_LIBS})
 
 if (WIN32)
     # flasher_exe.rc: the manifest, the icon, the shared look's fonts (ui_theme) and this program's hero

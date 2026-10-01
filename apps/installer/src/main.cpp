@@ -1,12 +1,13 @@
 //
 // The AutoBleem installer for the PlayStation Classic: a stick from a PC. The stick's file system is the
-// chosen channel's package on the download site (release, testing or nightly), the rest - the cover databases,
+// chosen channel's package on the download site (release, testing, nightly, preview - the site's channels.json
+// says which), the rest - the cover databases,
 // RetroArch and what goes with it, the BIOS files, the sample games - from the download repository, as
 // asked. Run again over a stick that has AutoBleem, it updates it and leaves the user's games and data.
 //
 //   AutoBleemInstaller.exe                       the window: pick the stick, answer the questions, Install
 //   AutoBleemInstaller.exe --quiet --drive F:    no window, the same on the console it was started from:
-//       [--channel release|testing|nightly] [--covers JUP] [--retroarch] [--bios] [--samples]
+//       [--channel release|testing|nightly|preview] [--covers JUP] [--retroarch] [--bios] [--samples]
 //       [--package FILE] [--repo URL]
 //       --channel defaults to the installer's own kind of build; --package installs a local file instead
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
@@ -16,6 +17,7 @@
 // WinINet.
 //
 #include "installer/installer_job.h"
+#include "channel_choice.h"
 #include "core/services/environment.h"
 #include "core/version.h"
 #include "win32_platform.h"
@@ -62,7 +64,7 @@ public:
 
 int usage() {
     cout << "USAGE: AutoBleemInstaller [--quiet --drive F: [--covers JUP] [--retroarch] [--bios] [--samples]]\n"
-            "                          [--channel release|testing|nightly] [--package FILE] [--repo URL]"
+            "                          [--channel release|testing|nightly|preview] [--package FILE] [--repo URL]"
          << endl;
     return EXIT_FAILURE;
 }
@@ -101,9 +103,9 @@ int main(int argc, char *argv[]) {
     options.coversUsa = covers.find_first_of("Uu") != string::npos;
     options.coversPal = covers.find_first_of("Pp") != string::npos;
     // the channel the stick package comes from: the one the installer itself was built on, unless asked
-    // (the window offers the other two); a --package file is installed as it is
+    // (the window offers the site's others); a --package file is installed as it is
     if (options.channel.empty())
-        options.channel = Version::isBetweenTags() ? "nightly" : Version::isPreRelease() ? "testing" : "release";
+        options.channel = channelchoice::builtFor();
     if (!options.packageFile.empty())
         options.channel.clear();
 
@@ -134,6 +136,14 @@ int main(int argc, char *argv[]) {
 #else
     CommandDownloader downloader;
 #endif
+    if (options.packageFile.empty()) {
+        // the channel's lists from the site's channels.json (any id it names); not there = the built-in names
+        const string scratch =
+            (options.scratchDir.empty() ? InstallerJob::normalizeRoot(options.root) + "/System/Install"
+                                        : options.scratchDir);
+        options.channelIndexes =
+            channelchoice::fetch(options.repoUrl, downloader, scratch).lists(options.channel, false);
+    }
     bool ok = InstallerJob::run(options, downloader, listener, []() { return false; }, error);
     if (!ok)
         cout << "FAILED: " << error << endl;

@@ -9,3 +9,9 @@ if (WIN32)
     target_include_directories(ui_theme PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(ui_theme PUBLIC comctl32 user32 gdi32 gdiplus ole32)
 endif()
+
+# channel_choice: the channels the Installer and the Flasher list, from the site's channels.json (any platform -
+# the tests in tests/apps run it with a fake downloader)
+add_library(channel_choice STATIC channel_choice.cpp channel_choice.h)
+target_include_directories(channel_choice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(channel_choice ab_installer)
