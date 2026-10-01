@@ -39,7 +39,14 @@ const COLORREF Magenta = RGB(0xff, 0x46, 0xaa);   // ONLY the default or focused
 const COLORREF Text = RGB(0xf4, 0xf6, 0xf8);
 const COLORREF TextDim = RGB(0x9a, 0xa4, 0xb2);
 
-const int HeroHeight = 150; // the picture's height; a 1 px cyan line runs under it, across the width
+const int HeroHeight = 150; // the picture's height at 96 dpi; a 1 px cyan line runs under it, across the width
+
+// a size laid out at 96 dpi, scaled to the screen's dpi: every program is system-dpi-aware (the manifest) and its
+// fonts are scaled, so its window, hero and controls are too (paintHero takes the scaled width)
+int px(int value);
+
+// the height `control`'s text needs when it wraps at `width` pixels in `font` (a multi-line static label)
+int wrappedHeight(HWND control, HFONT font, int width);
 
 // the window background brush (shared, never deleted)
 HBRUSH graphiteBrush();
@@ -48,6 +55,10 @@ HBRUSH graphiteBrush();
 // screen's dpi, loaded from the exe's RCDATA UI_RES_FONT_*. When a font cannot be loaded that one falls back to
 // the system message font (Segoe UI), SemiBold as FW_SEMIBOLD of it. The caller deletes the two HFONTs.
 void loadFonts(HFONT &medium, HFONT &semibold);
+
+// the exe's icon (resource 1, the multi-size autobleem.ico) on the window at the big and the small size, for the
+// taskbar, Alt-Tab and the title bar - the class icon alone is only the 32 px one
+void setWindowIcons(HWND hwnd);
 
 // dark title bar on Windows 10 2004+/11 (DWM immersive dark mode); older Windows ignore it. Returns false then.
 bool applyDarkTitleBar(HWND hwnd);

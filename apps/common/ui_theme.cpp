@@ -114,6 +114,24 @@ HBRUSH graphiteBrush() {
     return brush;
 }
 
+int px(int value) {
+    static const int dpi = screenDpi();
+    return MulDiv(value, dpi, 96);
+}
+
+int wrappedHeight(HWND control, HFONT font, int width) {
+    wchar_t text[1024] = {0};
+    GetWindowTextW(control, text, 1023);
+    HDC dc = GetDC(control);
+    HGDIOBJ old = font ? SelectObject(dc, font) : nullptr;
+    RECT area = {0, 0, width, 0};
+    DrawTextW(dc, text, -1, &area, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
+    if (old)
+        SelectObject(dc, old);
+    ReleaseDC(control, dc);
+    return area.bottom - area.top;
+}
+
 //*******************************
 // loadFonts
 //*******************************
@@ -128,6 +146,22 @@ void loadFonts(HFONT &medium, HFONT &semibold) {
         medium = systemFont(FW_NORMAL);
     if (!semibold)
         semibold = systemFont(FW_SEMIBOLD);
+}
+
+//*******************************
+// setWindowIcons
+//*******************************
+void setWindowIcons(HWND hwnd) {
+    HINSTANCE instance = GetModuleHandle(nullptr);
+    // the .ico holds 16..256: ask for the sizes the title bar / taskbar / Alt-Tab really draw
+    const int sizes[2][2] = {{GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON)},
+                             {GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON)}};
+    const WPARAM kinds[2] = {ICON_BIG, ICON_SMALL};
+    for (int i = 0; i < 2; i++) {
+        HANDLE icon = LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, sizes[i][0], sizes[i][1], LR_DEFAULTCOLOR);
+        if (icon)
+            SendMessageW(hwnd, WM_SETICON, kinds[i], reinterpret_cast<LPARAM>(icon));
+    }
 }
 
 //*******************************
@@ -182,12 +216,13 @@ Gdiplus::Image *loadHero() {
 }
 
 void paintHero(HDC dc, int width, Gdiplus::Image *hero, HFONT semibold) {
-    RECT area = {0, 0, width, HeroHeight};
+    const int heroHeight = px(HeroHeight);
+    RECT area = {0, 0, width, heroHeight};
     if (hero) {
         Gdiplus::Graphics g(dc);
         g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-        g.DrawImage(hero, Gdiplus::Rect(0, 0, width, HeroHeight), 0, 0, static_cast<INT>(hero->GetWidth()),
+        g.DrawImage(hero, Gdiplus::Rect(0, 0, width, heroHeight), 0, 0, static_cast<INT>(hero->GetWidth()),
                     static_cast<INT>(hero->GetHeight()), Gdiplus::UnitPixel);
     } else {
         fillRect(dc, area, Graphite);
@@ -198,7 +233,7 @@ void paintHero(HDC dc, int width, Gdiplus::Image *hero, HFONT semibold) {
         if (old)
             SelectObject(dc, old);
     }
-    RECT line = {0, HeroHeight, width, HeroHeight + 1};
+    RECT line = {0, heroHeight, width, heroHeight + 1};
     fillRect(dc, line, Cyan);
 }
 
@@ -292,18 +327,18 @@ LRESULT drawCheckbox(const NMCUSTOMDRAW &draw, HFONT medium) {
     fillRect(dc, rc, Graphite);
 
     // the 14x14 box: a 1 px rim around the dark well
-    const int size = 14;
+    const int size = px(14);
     const int x = rc.left, y = rc.top + (rc.bottom - rc.top - size) / 2;
     const RECT box = {x, y, x + size, y + size};
     const RECT inner = {x + 1, y + 1, x + size - 1, y + size - 1};
     fillRect(dc, box, disabled ? Rim : Cyan);
     fillRect(dc, inner, Well);
     if (on) {
-        HPEN pen = CreatePen(PS_SOLID, 2, disabled ? Rim : Cyan);
+        HPEN pen = CreatePen(PS_SOLID, px(2), disabled ? Rim : Cyan);
         HGDIOBJ old = SelectObject(dc, pen);
-        MoveToEx(dc, x + 3, y + 7, nullptr);
-        LineTo(dc, x + 6, y + 10);
-        LineTo(dc, x + 11, y + 4);
+        MoveToEx(dc, x + size * 3 / 14, y + size / 2, nullptr);
+        LineTo(dc, x + size * 6 / 14, y + size * 10 / 14);
+        LineTo(dc, x + size * 11 / 14, y + size * 4 / 14);
         SelectObject(dc, old);
         DeleteObject(pen);
     }
@@ -313,7 +348,7 @@ LRESULT drawCheckbox(const NMCUSTOMDRAW &draw, HFONT medium) {
     HGDIOBJ oldFont = medium ? SelectObject(dc, medium) : nullptr;
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, disabled ? TextDim : Text);
-    RECT label = {x + size + 6, rc.top, rc.right, rc.bottom};
+    RECT label = {x + size + px(6), rc.top, rc.right, rc.bottom};
     DrawTextW(dc, text, -1, &label, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     if (focused) {
         RECT extent = label;

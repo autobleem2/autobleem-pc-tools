@@ -27,6 +27,7 @@
 #include <gdiplus.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -169,6 +170,8 @@ string folderText(Window &w) {
     return InstallerJob::normalizeRoot(narrow(buf));
 }
 
+void layout(Window &w);
+
 // the status line under the folder: what is there already
 void describeFolder(Window &w) {
     WindowsInstallOptions o = w.defaults;
@@ -186,6 +189,7 @@ void describeFolder(Window &w) {
         text += " RetroArch " + (w.info.retroarchVersion.empty() ? string("is") : w.info.retroarchVersion + " is") +
                 " installed.";
     SetWindowTextW(w.status, wide(text).c_str());
+    layout(w); // the window grows with the status text
     // the PlayStation BIOS is wanted with or without RetroArch; the pack's size follows the choice
     const bool withRetroArch = checked(w.retroarch) || w.info.hasRetroArch;
     SetWindowTextW(w.bios,
@@ -211,38 +215,42 @@ void browseFolder(Window &w) {
 }
 
 void layout(Window &w) {
-    const int x = Margin, inner = Width - 2 * Margin;
-    int y = HeroHeight + Margin;
-    MoveWindow(w.folderLabel, x, y + 4, 80, 20, TRUE);
-    MoveWindow(w.folder, x + 82, y, inner - 82 - 90 - 8, 24, TRUE);
-    MoveWindow(w.browse, Width - Margin - 90, y, 90, 24, TRUE);
-    y += 32;
-    MoveWindow(w.status, x, y, inner, 34, TRUE);
-    y += 40;
-    MoveWindow(w.coversLabel, x, y + 2, 110, 20, TRUE);
-    MoveWindow(w.coversJ, x + 112, y, 70, 22, TRUE);
-    MoveWindow(w.coversU, x + 190, y, 70, 22, TRUE);
-    MoveWindow(w.coversP, x + 268, y, 70, 22, TRUE);
-    y += 28;
-    MoveWindow(w.retroarch, x, y, inner, 22, TRUE);
-    y += 26;
-    MoveWindow(w.bios, x + 20, y, inner - 20, 22, TRUE);
-    y += 26;
-    MoveWindow(w.samples, x, y, inner, 22, TRUE);
-    y += 34;
-    MoveWindow(w.install, Width - Margin - 110, y, 110, 30, TRUE);
-    const int questionsBottom = y + 30 + Margin;
-    y = HeroHeight + Margin;
-    MoveWindow(w.phaseLabel, x, y, inner, 20, TRUE);
-    y += 24;
-    MoveWindow(w.phaseBar, x, y, inner, 14, TRUE);
-    y += 20;
-    MoveWindow(w.bar, x, y, inner, 14, TRUE);
-    y += 22;
-    const int buttonH = 26, buttonW = 90;
-    MoveWindow(w.log, x, y, inner, questionsBottom - y - buttonH - Margin - 4, TRUE);
-    MoveWindow(w.action, Width - Margin - buttonW, questionsBottom - buttonH - Margin, buttonW, buttonH, TRUE);
-    RECT r = {0, 0, Width, questionsBottom};
+    using uitheme::px;
+    const int W = px(Width), margin = px(Margin), heroH = px(HeroHeight);
+    const int x = margin, inner = W - 2 * margin;
+    int y = heroH + margin;
+    MoveWindow(w.folderLabel, x, y + px(4), px(80), px(20), TRUE);
+    MoveWindow(w.folder, x + px(82), y, inner - px(82) - px(90) - px(8), px(24), TRUE);
+    MoveWindow(w.browse, W - margin - px(90), y, px(90), px(24), TRUE);
+    y += px(32);
+    // the status text wraps: its height comes from the text, never less than two lines' room
+    const int statusH = max(px(34), uitheme::wrappedHeight(w.status, w.bold, inner) + px(4));
+    MoveWindow(w.status, x, y, inner, statusH, TRUE);
+    y += statusH + px(6);
+    MoveWindow(w.coversLabel, x, y + px(2), px(110), px(20), TRUE);
+    MoveWindow(w.coversJ, x + px(112), y, px(70), px(22), TRUE);
+    MoveWindow(w.coversU, x + px(190), y, px(70), px(22), TRUE);
+    MoveWindow(w.coversP, x + px(268), y, px(70), px(22), TRUE);
+    y += px(28);
+    MoveWindow(w.retroarch, x, y, inner, px(22), TRUE);
+    y += px(26);
+    MoveWindow(w.bios, x + px(20), y, inner - px(20), px(22), TRUE);
+    y += px(26);
+    MoveWindow(w.samples, x, y, inner, px(22), TRUE);
+    y += px(34);
+    MoveWindow(w.install, W - margin - px(110), y, px(110), px(30), TRUE);
+    const int questionsBottom = y + px(30) + margin;
+    y = heroH + margin;
+    MoveWindow(w.phaseLabel, x, y, inner, px(20), TRUE);
+    y += px(24);
+    MoveWindow(w.phaseBar, x, y, inner, px(14), TRUE);
+    y += px(20);
+    MoveWindow(w.bar, x, y, inner, px(14), TRUE);
+    y += px(22);
+    const int buttonH = px(26), buttonW = px(90);
+    MoveWindow(w.log, x, y, inner, questionsBottom - y - buttonH - margin - px(4), TRUE);
+    MoveWindow(w.action, W - margin - buttonW, questionsBottom - buttonH - margin, buttonW, buttonH, TRUE);
+    RECT r = {0, 0, W, questionsBottom};
     AdjustWindowRect(&r, static_cast<DWORD>(GetWindowLongPtr(w.hwnd, GWL_STYLE)), FALSE);
     SetWindowPos(w.hwnd, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
 }
@@ -401,7 +409,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
-        uitheme::paintHero(dc, Width, w ? w->hero : nullptr, w ? w->bold : nullptr);
+        uitheme::paintHero(dc, uitheme::px(Width), w ? w->hero : nullptr, w ? w->bold : nullptr);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -521,12 +529,13 @@ int runSetupWindow(const WindowsInstallOptions &defaults, bool autoStart) {
     HWND hwnd = CreateWindowExW(
         0, L"AutoBleemWinSetup",
         wide("AutoBleem 2 " + Env::productVersion() + (autoStart ? " - setting up" : " - setup")).c_str(),
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, Width, 600, nullptr,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, uitheme::px(Width), 600, nullptr,
         nullptr, wc.hInstance, &w);
     if (!hwnd) {
         PLOG_ERROR << "CreateWindow failed: " << GetLastError();
         return 1;
     }
+    uitheme::setWindowIcons(hwnd);
     ShowWindow(hwnd, SW_SHOW);
 
     MSG msg;

@@ -28,6 +28,7 @@
 #include <objidl.h>
 #include <gdiplus.h>
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -194,6 +195,8 @@ void showPage(Window &w, bool progress) {
         ShowWindow(h, progress ? SW_SHOW : SW_HIDE);
 }
 
+void layout(Window &w);
+
 // what would be written, onto what - under the two boxes
 void describe(Window &w) {
     const int ch = selectedChannel(w);
@@ -229,6 +232,7 @@ void describe(Window &w) {
     }
     SetWindowTextW(w.status, wide(what).c_str());
     EnableWindow(w.write, canWrite);
+    layout(w); // the window grows with the status text
 }
 
 void refreshDisks(Window &w) {
@@ -268,34 +272,38 @@ void chooseImageFile(Window &w) {
 }
 
 void layout(Window &w) {
-    const int x = Margin, inner = Width - 2 * Margin;
-    int y = HeroHeight + Margin;
-    MoveWindow(w.channelLabel, x, y + 4, 72, 20, TRUE);
-    MoveWindow(w.channel, x + 74, y, 280, 200, TRUE);
-    y += 32;
-    MoveWindow(w.disksLabel, x, y + 4, 72, 20, TRUE);
-    MoveWindow(w.disks, x + 74, y, inner - 74 - 88, 200, TRUE);
-    MoveWindow(w.refresh, Width - Margin - 80, y, 80, 24, TRUE);
-    y += 28;
-    MoveWindow(w.fixed, x + 74, y, inner - 74, 22, TRUE);
-    y += 30;
-    MoveWindow(w.status, x, y, inner, 52, TRUE);
-    y += 58;
-    MoveWindow(w.verify, x, y, inner, 22, TRUE);
-    y += 34;
-    MoveWindow(w.write, Width - Margin - 110, y, 110, 30, TRUE);
-    const int questionsBottom = y + 30 + Margin + 60; // the progress page needs the room for its log
-    y = HeroHeight + Margin;
-    MoveWindow(w.phaseLabel, x, y, inner, 20, TRUE);
-    y += 24;
-    MoveWindow(w.phaseBar, x, y, inner, 14, TRUE);
-    y += 20;
-    MoveWindow(w.bar, x, y, inner, 14, TRUE);
-    y += 22;
-    const int buttonH = 26, buttonW = 90;
-    MoveWindow(w.log, x, y, inner, questionsBottom - y - buttonH - Margin - 4, TRUE);
-    MoveWindow(w.action, Width - Margin - buttonW, questionsBottom - buttonH - Margin, buttonW, buttonH, TRUE);
-    RECT r = {0, 0, Width, questionsBottom};
+    using uitheme::px;
+    const int W = px(Width), margin = px(Margin), heroH = px(HeroHeight);
+    const int x = margin, inner = W - 2 * margin;
+    int y = heroH + margin;
+    MoveWindow(w.channelLabel, x, y + px(4), px(72), px(20), TRUE);
+    MoveWindow(w.channel, x + px(74), y, px(280), px(200), TRUE);
+    y += px(32);
+    MoveWindow(w.disksLabel, x, y + px(4), px(72), px(20), TRUE);
+    MoveWindow(w.disks, x + px(74), y, inner - px(74) - px(88), px(200), TRUE);
+    MoveWindow(w.refresh, W - margin - px(80), y, px(80), px(24), TRUE);
+    y += px(28);
+    MoveWindow(w.fixed, x + px(74), y, inner - px(74), px(22), TRUE);
+    y += px(30);
+    // the status text wraps: its height comes from the text, never less than three lines' room
+    const int statusH = max(px(52), uitheme::wrappedHeight(w.status, w.bold, inner) + px(4));
+    MoveWindow(w.status, x, y, inner, statusH, TRUE);
+    y += statusH + px(6);
+    MoveWindow(w.verify, x, y, inner, px(22), TRUE);
+    y += px(34);
+    MoveWindow(w.write, W - margin - px(110), y, px(110), px(30), TRUE);
+    const int questionsBottom = y + px(30) + margin + px(60); // the progress page needs the room for its log
+    y = heroH + margin;
+    MoveWindow(w.phaseLabel, x, y, inner, px(20), TRUE);
+    y += px(24);
+    MoveWindow(w.phaseBar, x, y, inner, px(14), TRUE);
+    y += px(20);
+    MoveWindow(w.bar, x, y, inner, px(14), TRUE);
+    y += px(22);
+    const int buttonH = px(26), buttonW = px(90);
+    MoveWindow(w.log, x, y, inner, questionsBottom - y - buttonH - margin - px(4), TRUE);
+    MoveWindow(w.action, W - margin - buttonW, questionsBottom - buttonH - margin, buttonW, buttonH, TRUE);
+    RECT r = {0, 0, W, questionsBottom};
     AdjustWindowRect(&r, static_cast<DWORD>(GetWindowLongPtr(w.hwnd, GWL_STYLE)), FALSE);
     SetWindowPos(w.hwnd, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
 }
@@ -489,7 +497,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
-        uitheme::paintHero(dc, Width, w ? w->hero : nullptr, w ? w->bold : nullptr);
+        uitheme::paintHero(dc, uitheme::px(Width), w ? w->hero : nullptr, w ? w->bold : nullptr);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -620,11 +628,12 @@ int runFlasherWindow(const FlashOptions &defaults) {
     HWND hwnd = CreateWindowExW(0, WindowClass,
                                 wide("AutoBleem 2 " + Env::productVersion() + " - write the PC USB stick").c_str(),
                                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT,
-                                Width, 600, nullptr, nullptr, wc.hInstance, &w);
+                                uitheme::px(Width), 600, nullptr, nullptr, wc.hInstance, &w);
     if (!hwnd) {
         PLOG_ERROR << "CreateWindow failed: " << GetLastError();
         return 1;
     }
+    uitheme::setWindowIcons(hwnd);
     ShowWindow(hwnd, SW_SHOW);
 
     MSG msg;

@@ -26,6 +26,7 @@
 #include <objidl.h>
 #include <gdiplus.h>
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -211,6 +212,8 @@ string selectedRoot(Window &w) {
     return w.driveList[static_cast<size_t>(i)].root;
 }
 
+void layout(Window &w);
+
 // the stick's state under the drive box, and what the buttons may do
 void describeStick(Window &w) {
     string root = selectedRoot(w);
@@ -270,6 +273,7 @@ void describeStick(Window &w) {
         canInstall = false;
     }
     SetWindowTextW(w.status, wide(text).c_str());
+    layout(w); // the window grows with the status text
     SetWindowTextW(w.install, w.info.installed ? L"Update" : L"Install");
     EnableWindow(w.install, canInstall);
     EnableWindow(w.format, !root.empty());
@@ -293,46 +297,51 @@ void refreshDrives(Window &w) {
 }
 
 void layout(Window &w) {
-    const int x = Margin, inner = Width - 2 * Margin;
-    int y = HeroHeight + Margin;
+    using uitheme::px;
+    const int W = px(Width), margin = px(Margin), heroH = px(HeroHeight);
+    const int x = margin, inner = W - 2 * margin;
+    int y = heroH + margin;
     // the questions
-    MoveWindow(w.channelLabel, x, y + 4, 70, 20, TRUE);
-    MoveWindow(w.channel, x + 72, y, 260, 200, TRUE);
-    y += 32;
-    MoveWindow(w.drivesLabel, x, y + 4, 70, 20, TRUE);
-    MoveWindow(w.drives, x + 72, y, inner - 72 - 2 * 80 - 8 - 70 - 6, 200, TRUE);
-    MoveWindow(w.refresh, Width - Margin - 80 - 8 - 70 - 6 - 80, y, 80, 24, TRUE);
-    MoveWindow(w.formatFs, Width - Margin - 80 - 6 - 70, y, 70, 200, TRUE);
-    MoveWindow(w.format, Width - Margin - 80, y, 80, 24, TRUE);
-    y += 32;
-    MoveWindow(w.status, x, y, inner, 52, TRUE); // three lines: the stick, the channel's version, RetroArch
-    y += 58;
-    MoveWindow(w.coversLabel, x, y + 2, 110, 20, TRUE);
-    MoveWindow(w.coversJ, x + 112, y, 70, 22, TRUE);
-    MoveWindow(w.coversU, x + 190, y, 70, 22, TRUE);
-    MoveWindow(w.coversP, x + 268, y, 70, 22, TRUE);
-    y += 28;
-    MoveWindow(w.retroarch, x, y, inner, 22, TRUE);
-    y += 26;
-    MoveWindow(w.bios, x + 20, y, inner - 20, 22, TRUE);
-    y += 26;
-    MoveWindow(w.samples, x, y, inner, 22, TRUE);
-    y += 34;
-    MoveWindow(w.install, Width - Margin - 110, y, 110, 30, TRUE);
-    const int questionsBottom = y + 30 + Margin;
+    MoveWindow(w.channelLabel, x, y + px(4), px(70), px(20), TRUE);
+    MoveWindow(w.channel, x + px(72), y, px(260), px(200), TRUE);
+    y += px(32);
+    MoveWindow(w.drivesLabel, x, y + px(4), px(70), px(20), TRUE);
+    MoveWindow(w.drives, x + px(72), y, inner - px(72) - 2 * px(80) - px(8) - px(70) - px(6), px(200), TRUE);
+    MoveWindow(w.refresh, W - margin - px(80) - px(8) - px(70) - px(6) - px(80), y, px(80), px(24), TRUE);
+    MoveWindow(w.formatFs, W - margin - px(80) - px(6) - px(70), y, px(70), px(200), TRUE);
+    MoveWindow(w.format, W - margin - px(80), y, px(80), px(24), TRUE);
+    y += px(32);
+    // the status text wraps: its height comes from the text, never less than three lines' room (the stick, the
+    // channel's version, RetroArch)
+    const int statusH = max(px(52), uitheme::wrappedHeight(w.status, w.bold, inner) + px(4));
+    MoveWindow(w.status, x, y, inner, statusH, TRUE);
+    y += statusH + px(6);
+    MoveWindow(w.coversLabel, x, y + px(2), px(110), px(20), TRUE);
+    MoveWindow(w.coversJ, x + px(112), y, px(70), px(22), TRUE);
+    MoveWindow(w.coversU, x + px(190), y, px(70), px(22), TRUE);
+    MoveWindow(w.coversP, x + px(268), y, px(70), px(22), TRUE);
+    y += px(28);
+    MoveWindow(w.retroarch, x, y, inner, px(22), TRUE);
+    y += px(26);
+    MoveWindow(w.bios, x + px(20), y, inner - px(20), px(22), TRUE);
+    y += px(26);
+    MoveWindow(w.samples, x, y, inner, px(22), TRUE);
+    y += px(34);
+    MoveWindow(w.install, W - margin - px(110), y, px(110), px(30), TRUE);
+    const int questionsBottom = y + px(30) + margin;
     // the progress, over the same area
-    y = HeroHeight + Margin;
-    MoveWindow(w.phaseLabel, x, y, inner, 20, TRUE);
-    y += 24;
-    MoveWindow(w.phaseBar, x, y, inner, 14, TRUE);
-    y += 20;
-    MoveWindow(w.bar, x, y, inner, 14, TRUE);
-    y += 22;
-    const int buttonH = 26, buttonW = 90;
-    MoveWindow(w.log, x, y, inner, questionsBottom - y - buttonH - Margin - 4, TRUE);
-    MoveWindow(w.action, Width - Margin - buttonW, questionsBottom - buttonH - Margin, buttonW, buttonH, TRUE);
+    y = heroH + margin;
+    MoveWindow(w.phaseLabel, x, y, inner, px(20), TRUE);
+    y += px(24);
+    MoveWindow(w.phaseBar, x, y, inner, px(14), TRUE);
+    y += px(20);
+    MoveWindow(w.bar, x, y, inner, px(14), TRUE);
+    y += px(22);
+    const int buttonH = px(26), buttonW = px(90);
+    MoveWindow(w.log, x, y, inner, questionsBottom - y - buttonH - margin - px(4), TRUE);
+    MoveWindow(w.action, W - margin - buttonW, questionsBottom - buttonH - margin, buttonW, buttonH, TRUE);
     // the window itself, around the client area
-    RECT r = {0, 0, Width, questionsBottom};
+    RECT r = {0, 0, W, questionsBottom};
     AdjustWindowRect(&r, static_cast<DWORD>(GetWindowLongPtr(w.hwnd, GWL_STYLE)), FALSE);
     SetWindowPos(w.hwnd, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
 }
@@ -562,7 +571,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
-        uitheme::paintHero(dc, Width, w ? w->hero : nullptr, w ? w->bold : nullptr);
+        uitheme::paintHero(dc, uitheme::px(Width), w ? w->hero : nullptr, w ? w->bold : nullptr);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -691,12 +700,13 @@ int runInstallerWindow(const InstallOptions &defaults) {
     HWND hwnd = CreateWindowExW(
         0, L"AutoBleemInstaller",
         wide("AutoBleem 2 " + Env::productVersion() + " - install onto a PlayStation Classic stick").c_str(),
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, Width, 600, nullptr,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, uitheme::px(Width), 600, nullptr,
         nullptr, wc.hInstance, &w);
     if (!hwnd) {
         PLOG_ERROR << "CreateWindow failed: " << GetLastError();
         return 1;
     }
+    uitheme::setWindowIcons(hwnd);
     ShowWindow(hwnd, SW_SHOW);
 
     MSG msg;
