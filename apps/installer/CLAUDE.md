@@ -35,8 +35,9 @@ the scratch folder first; the cover databases are copied once, onto the stick, w
 manifest does not list (the BIOS list and files, `releases/*.json` for UpdateRoms of another release) goes to the
 downloader behind it, so the online mode is unchanged for the small exe. The window (`win32_window.cpp`) says "Install
 from: This download (<version>)" instead of the channel box and tells that only the BIOS files come from the internet.
-`--ps1-bios-only` (`InstallOptions::ps1BiosOnly`): with `--bios`, nothing is fetched - the console copies its own
-PlayStation BIOS at every boot.
+`--ps1-bios-only` (`InstallOptions::ps1BiosOnly`, also `WindowsInstallOptions` / `AutoBleemWinSetup`): with `--bios`, only
+the PlayStation entries of the same BIOS pack are fetched (`InstallJobBase::isPs1PackFile`: scph*.bin, ps1_rom.bin,
+psxonpsp660.bin - what RetroArch's PS1 cores list as firmware), by the same parallel/resume/verified-record code.
 
 **WinInetDownloader** (`win32_platform.*`) keeps one WinINet session, a connection per thread and host open between files
 (`INTERNET_FLAG_KEEP_CONNECTION`; a stale kept connection is replaced once), resumes a `.part` with a Range request

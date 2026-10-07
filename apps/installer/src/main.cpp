@@ -11,7 +11,7 @@
 //       [--package FILE] [--repo URL] [--ps1-bios-only] [--payload DIR | --online]
 //       --channel defaults to the installer's own kind of build; --package installs a local file instead
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
-//       --ps1-bios-only: with --bios, nothing is fetched - the console has the PlayStation BIOS of its own
+//       --ps1-bios-only: with --bios, only the PlayStation BIOS files of the BIOS pack are fetched
 //
 // An installer download that carries its own packs (AutoBleemInstaller-<v>-full.zip: a payload/ folder with a
 // bundle.json next to the exe) installs from that folder - no channel, no download but the BIOS files; --payload

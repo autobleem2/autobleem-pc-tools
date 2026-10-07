@@ -24,7 +24,7 @@ and whatever else is ticked. The window says what is on the stick and what the c
 
 For scripts: AutoBleemInstaller.exe --quiet --drive F: [--channel release|testing|nightly] [--covers JUP]
              [--retroarch] [--bios [--ps1-bios-only]] [--samples] [--package autobleem-psc-<version>.tar.gz]
-             --ps1-bios-only: with --bios, fetch nothing - PlayStation games need no BIOS file from you.
+             --ps1-bios-only: with --bios, only the PlayStation BIOS files of the BIOS pack (same source), not the rest.
 
 Prefer one download with everything in it? The site also has AutoBleemInstaller-<version>-full.zip, about 1 GB: the
 same program with AutoBleem, RetroArch, its cores, the apps and the cover art next to it, so the install downloads

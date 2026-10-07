@@ -8,7 +8,7 @@
 //   AutoBleemWinSetup.exe --run --root DIR [--program DIR]    the window, straight to the progress page - the NSIS
 //                                                             installer's wizard asked the questions already
 //   AutoBleemWinSetup.exe --quiet --root DIR [--program DIR]  no window, the lines on the console it came from:
-//       [--covers JUP] [--retroarch] [--bios] [--samples] [--update] [--repo URL]
+//       [--covers JUP] [--retroarch] [--bios [--ps1-bios-only]] [--samples] [--update] [--repo URL]
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
 //       --update: the program was just updated - the launcher rescans once
 //
@@ -61,7 +61,7 @@ public:
 
 int usage() {
     cout << "USAGE: AutoBleemWinSetup [--quiet|--run] [--root DIR] [--program DIR] [--covers JUP] [--retroarch] "
-            "[--bios]\n"
+            "[--bios] [--ps1-bios-only]\n"
             "                         [--samples] [--update] [--repo URL]"
          << endl;
     return EXIT_FAILURE;
@@ -89,6 +89,8 @@ int main(int argc, char *argv[]) {
             options.retroarch = true;
         else if (arg == "--bios")
             options.bios = true;
+        else if (arg == "--ps1-bios-only")
+            options.ps1BiosOnly = true;
         else if (arg == "--samples")
             options.samples = true;
         else if (arg == "--update")
