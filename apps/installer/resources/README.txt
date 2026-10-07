@@ -23,7 +23,12 @@ Everything comes from https://autobleem.retromenele.pl: the chosen channel's Aut
 and whatever else is ticked. The window says what is on the stick and what the channel would put there.
 
 For scripts: AutoBleemInstaller.exe --quiet --drive F: [--channel release|testing|nightly] [--covers JUP]
-             [--retroarch] [--bios] [--samples] [--package autobleem-psc-<version>.tar.gz]
+             [--retroarch] [--bios [--ps1-bios-only]] [--samples] [--package autobleem-psc-<version>.tar.gz]
+             --ps1-bios-only: with --bios, fetch nothing - PlayStation games need no BIOS file from you.
+
+Prefer one download with everything in it? The site also has AutoBleemInstaller-<version>-full.zip, about 1 GB: the
+same program with AutoBleem, RetroArch, its cores, the apps and the cover art next to it, so the install downloads
+nothing (only the BIOS files, if you tick them).
 
 If the console no longer starts at all - and Sony's recovery (the stick with LBOOT.EPB, the power cord
 pulled and put back) does not bring it back - LastResortRecovery\LastResortRecovery.exe in this folder
