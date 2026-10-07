@@ -8,9 +8,14 @@
 //   AutoBleemInstaller.exe                       the window: pick the stick, answer the questions, Install
 //   AutoBleemInstaller.exe --quiet --drive F:    no window, the same on the console it was started from:
 //       [--channel release|testing|nightly|preview] [--covers JUP] [--retroarch] [--bios] [--samples]
-//       [--package FILE] [--repo URL]
+//       [--package FILE] [--repo URL] [--ps1-bios-only] [--payload DIR | --online]
 //       --channel defaults to the installer's own kind of build; --package installs a local file instead
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
+//       --ps1-bios-only: with --bios, nothing is fetched - the console has the PlayStation BIOS of its own
+//
+// An installer download that carries its own packs (AutoBleemInstaller-<v>-full.zip: a payload/ folder with a
+// bundle.json next to the exe) installs from that folder - no channel, no download but the BIOS files; --payload
+// names such a folder, --online (or --channel) ignores it and goes to the site as the small exe does.
 //
 // On Windows a plain Win32 window (win32_window.cpp), statically linked: one file, nothing to install.
 // Elsewhere (a Linux or macOS build) there is the --quiet path only, and a download command instead of
@@ -64,7 +69,8 @@ public:
 
 int usage() {
     cout << "USAGE: AutoBleemInstaller [--quiet --drive F: [--covers JUP] [--retroarch] [--bios] [--samples]]\n"
-            "                          [--channel release|testing|nightly|preview] [--package FILE] [--repo URL]"
+            "                          [--channel release|testing|nightly|preview] [--package FILE] [--repo URL]\n"
+            "                          [--ps1-bios-only] [--payload DIR | --online]"
          << endl;
     return EXIT_FAILURE;
 }
@@ -72,8 +78,9 @@ int usage() {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    bool quiet = false;
+    bool quiet = false, online = false;
     InstallOptions options;
+    string payload;
     string covers = "JUP";
     for (int i = 1; i < argc; i++) {
         string arg = argv[i];
@@ -89,10 +96,15 @@ int main(int argc, char *argv[]) {
             options.retroarch = true;
         else if (arg == "--bios")
             options.bios = true;
+        else if (arg == "--ps1-bios-only")
+            options.ps1BiosOnly = true;
+        else if (arg == "--online")
+            online = true;
         else if (arg == "--samples")
             options.samples = true;
         else if (arg == "--drive" && value(options.root)) {
         } else if (arg == "--covers" && value(covers)) {
+        } else if (arg == "--payload" && value(payload)) {
         } else if (arg == "--package" && value(options.packageFile)) {
         } else if (arg == "--channel" && value(options.channel)) {
         } else if (arg == "--repo" && value(options.repoUrl)) {
@@ -104,6 +116,25 @@ int main(int argc, char *argv[]) {
     options.coversPal = covers.find_first_of("Pp") != string::npos;
     // the channel the stick package comes from: the one the installer itself was built on, unless asked
     // (the window offers the site's others); a --package file is installed as it is
+    // an installer download with its own packs: the payload folder next to the exe (or --payload), unless the
+    // run was pointed elsewhere (--online, --channel, --package) - a channel asked for by name is the site's
+    const bool channelAsked = !options.channel.empty();
+    if (!online && !channelAsked && options.packageFile.empty()) {
+#ifdef _WIN32
+        const string beside = programDirectory() + "/AutoBleemInstaller.exe";
+#else
+        const string beside = argv[0];
+#endif
+        options.bundleDir = payload.empty() ? InstallerJob::bundleNextTo(beside) : payload;
+        if (!options.bundleDir.empty()) {
+            options.packageFile = InstallerJob::bundlePackage(options.bundleDir);
+            if (options.packageFile.empty()) {
+                cout << "FAILED: " << options.bundleDir << " is not a usable payload (no bundle.json with a package)"
+                     << endl;
+                return EXIT_FAILURE;
+            }
+        }
+    }
     if (options.channel.empty())
         options.channel = channelchoice::builtFor();
     if (!options.packageFile.empty())
@@ -115,7 +146,9 @@ int main(int argc, char *argv[]) {
 #endif
     ableem::Log::initConsoleOnly();
     PLOG_INFO << "AutoBleem installer " << Env::productVersion() << " (" << Version::FULL_VERSION << ")" << ", "
-              << (options.packageFile.empty() ? "the " + options.channel + " channel" : options.packageFile);
+              << (!options.bundleDir.empty() ? "the payload " + options.bundleDir
+                                             : options.packageFile.empty() ? "the " + options.channel + " channel"
+                                                                           : options.packageFile);
 
     if (!quiet) {
 #ifdef _WIN32

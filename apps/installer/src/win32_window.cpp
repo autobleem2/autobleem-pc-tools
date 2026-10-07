@@ -281,7 +281,10 @@ void describeStick(Window &w) {
         if (d.fileSystem == "exFAT")
             text += " (exFAT: the AutoBleem kernel is needed on the console.)";
     }
-    if (!w.defaults.packageFile.empty()) {
+    if (!w.defaults.bundleDir.empty()) {
+        // a download with its own packs: no channel, nothing asked of the site but the BIOS files, if ticked
+        text += " This download carries everything: only the BIOS files, if you ask for them, come from the internet.";
+    } else if (!w.defaults.packageFile.empty()) {
         // --package: a local file, no channel
     } else if (!w.looked.load()) {
         text = "Asking the download site what each channel offers...";
@@ -517,9 +520,17 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         uitheme::loadFonts(w->font, w->bold);
         uitheme::applyDarkTitleBar(hwnd); // older Windows keep their light bar
 
-        w->channelLabel = make(*w, L"STATIC", L"Channel:", SS_LEFT, 0);
+        w->channelLabel = make(*w, L"STATIC", w->defaults.bundleDir.empty() ? L"Channel:" : L"Install from:", SS_LEFT, 0);
         w->channel = make(*w, L"COMBOBOX", nullptr, WS_TABSTOP | CBS_DROPDOWNLIST, IdChannel);
         fillChannels(*w, w->defaults.channel); // the built-in three until the site's list is read
+        if (!w->defaults.bundleDir.empty()) {
+            // an installer download that carries its own packs: the one source, this download
+            const string version = InstallerJob::inspect(w->defaults).packageVersion;
+            SendMessage(w->channel, CB_RESETCONTENT, 0, 0);
+            SendMessageW(w->channel, CB_ADDSTRING, 0,
+                         reinterpret_cast<LPARAM>(wide("This download" + (version.empty() ? "" : " (" + version + ")")).c_str()));
+            SendMessage(w->channel, CB_SETCURSEL, 0, 0);
+        }
         EnableWindow(w->channel, w->defaults.packageFile.empty());
         // the site's channel list and each channel's offer, off the UI thread (small downloads)
         if (w->defaults.packageFile.empty()) {
@@ -563,7 +574,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         w->retroarch = make(*w, L"BUTTON",
                             L"Install RetroArch (emulators for the other systems, with its cores, apps and libraries)",
                             WS_TABSTOP | BS_AUTOCHECKBOX, IdRetroArch);
-        w->bios = make(*w, L"BUTTON", L"Download the BIOS files the cores need (about 300 MB, from RetroBIOS)",
+        w->bios = make(*w, L"BUTTON", L"Download the BIOS files for the other systems (about 300 MB; PlayStation needs none)",
                        WS_TABSTOP | BS_AUTOCHECKBOX, IdBios);
         w->samples = make(*w, L"BUTTON", L"Add the sample games (free homebrew, so the shelf is not empty)",
                           WS_TABSTOP | BS_AUTOCHECKBOX, IdSamples);

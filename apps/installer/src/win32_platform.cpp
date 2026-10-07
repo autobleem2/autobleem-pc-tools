@@ -2,6 +2,7 @@
 
 #include "win32_platform.h"
 
+#include <ableem/engine/filesystem.h>
 #include <ableem/engine/log.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -15,6 +16,8 @@
 
 #include <cstdio>
 #include <fstream>
+#include <sstream>
+#include <thread>
 
 using namespace std;
 
@@ -164,6 +167,10 @@ bool ensureVolumeLabel(const string &root, const string &label, string &error) {
         error = "not a drive: " + root;
         return false;
     }
+    // a folder on a drive ("E:/tmp/stick": --drive pointed at a test target) is no stick - the drive's own label is not
+    // the installer's to rename
+    if (root.size() > 3 || (root.size() == 3 && root[2] != '/' && root[2] != '\\'))
+        return true;
     wchar_t r[] = {static_cast<wchar_t>(root[0]), L':', L'\\', 0};
     wchar_t current[MAX_PATH + 1] = {0};
     if (GetVolumeInformationW(r, current, MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0) &&
@@ -239,53 +246,182 @@ bool formatDrive(const string &letter, const string &fileSystem, const string &l
 }
 
 //*******************************
-// WinInetDownloader::fetch
+// WinInetDownloader
 //*******************************
+// One WinINet session for the life of the object, and per thread and host one connection kept open between
+// files (INTERNET_FLAG_KEEP_CONNECTION): the BIOS pack's 700 files used to cost a session, a TLS handshake and a
+// new connection each. Each thread has connections of its own, so the BIOS workers (connections()) share nothing
+// but the cache's map. A file may be continued from a part with an HTTP Range request.
+namespace {
+
+string threadKey() {
+    ostringstream key;
+    key << this_thread::get_id();
+    return key.str();
+}
+
+bool crack(const string &url, WinInetTarget &t) {
+    const wstring w = wide(url);
+    URL_COMPONENTSW c = {};
+    c.dwStructSize = sizeof(c);
+    c.dwSchemeLength = c.dwHostNameLength = c.dwUrlPathLength = c.dwExtraInfoLength = static_cast<DWORD>(-1);
+    if (!InternetCrackUrlW(w.c_str(), static_cast<DWORD>(w.size()), 0, &c) || c.dwHostNameLength == 0)
+        return false;
+    if (c.nScheme != INTERNET_SCHEME_HTTP && c.nScheme != INTERNET_SCHEME_HTTPS)
+        return false;
+    t.host.assign(c.lpszHostName, c.dwHostNameLength);
+    t.path.assign(c.lpszUrlPath, c.dwUrlPathLength);
+    t.path.append(c.lpszExtraInfo, c.dwExtraInfoLength);
+    if (t.path.empty())
+        t.path = L"/";
+    t.port = c.nPort;
+    t.secure = c.nScheme == INTERNET_SCHEME_HTTPS;
+    return true;
+}
+
+} // namespace
+
+WinInetDownloader::WinInetDownloader() {
+    session_ = InternetOpenW(L"AutoBleem-Installer/1.0", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
+    if (!session_)
+        return;
+    DWORD timeout = 30000;
+    InternetSetOptionW(session_, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionW(session_, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    // WinINet allows 2 (older) to 6 connections to one host; the BIOS workers want connections() of them
+    DWORD perServer = 8;
+    InternetSetOptionW(nullptr, INTERNET_OPTION_MAX_CONNS_PER_SERVER, &perServer, sizeof(perServer));
+}
+
+WinInetDownloader::~WinInetDownloader() {
+    for (auto &c : connections_)
+        InternetCloseHandle(c.second);
+    if (session_)
+        InternetCloseHandle(session_);
+}
+
+void *WinInetDownloader::connection(const WinInetTarget &t, bool fresh) {
+    const string key = threadKey() + "|" + narrow(t.host) + ":" + to_string(t.port) + (t.secure ? "s" : "");
+    lock_guard<mutex> lock(m_);
+    auto it = connections_.find(key);
+    if (it != connections_.end()) {
+        if (!fresh)
+            return it->second;
+        InternetCloseHandle(it->second);
+        connections_.erase(it);
+    }
+    HINTERNET c = InternetConnectW(session_, t.host.c_str(), t.port, nullptr, nullptr, INTERNET_SERVICE_HTTP, 0, 0);
+    if (c)
+        connections_[key] = c;
+    return c;
+}
+
 bool WinInetDownloader::fetch(const string &url, const string &destFile, const Progress &progress, string &error) {
-    HINTERNET session = InternetOpenW(L"AutoBleem-Installer/1.0", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
-    if (!session) {
+    return get(url, destFile, false, progress, error);
+}
+
+bool WinInetDownloader::fetchResumable(const string &url, const string &destFile, const Progress &progress,
+                                       string &error) {
+    return get(url, destFile, true, progress, error);
+}
+
+bool WinInetDownloader::get(const string &url, const string &destFile, bool resume, const Progress &progress,
+                            string &error) {
+    if (!session_) {
         error = "WinINet: " + lastErrorText(GetLastError());
         return false;
     }
-    DWORD timeout = 30000;
-    InternetSetOptionW(session, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    InternetSetOptionW(session, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-    HINTERNET file = InternetOpenUrlW(session, wide(url).c_str(), nullptr, 0,
-                                      INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_UI, 0);
-    if (!file) {
+    WinInetTarget target;
+    if (!crack(url, target)) {
+        error = url + ": not an http(s) address";
+        return false;
+    }
+    // what a continued download starts from: the bytes the part already holds
+    uint64_t have = 0;
+    if (resume) {
+        const long long size = ableem::DirEntry::fileSize(destFile);
+        have = size > 0 ? static_cast<uint64_t>(size) : 0;
+    }
+    HINTERNET req = nullptr;
+    DWORD status = 0;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        // attempt 1: the kept connection was probably closed by the server meanwhile - a new one; attempt 2: the
+        // same without the Range when the server answered 416 (the part is not a prefix of its file)
+        HINTERNET conn = static_cast<HINTERNET>(connection(target, attempt == 1));
+        if (!conn) {
+            error = url + ": " + lastErrorText(GetLastError());
+            return false;
+        }
+        DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_UI |
+                      INTERNET_FLAG_KEEP_CONNECTION | (target.secure ? INTERNET_FLAG_SECURE : 0);
+        req = HttpOpenRequestW(conn, L"GET", target.path.c_str(), nullptr, nullptr, nullptr, flags, 0);
+        if (!req) {
+            error = url + ": " + lastErrorText(GetLastError());
+            return false;
+        }
+        if (have > 0) {
+            const wstring range = L"Range: bytes=" + to_wstring(have) + L"-\r\n";
+            HttpAddRequestHeadersW(req, range.c_str(), static_cast<DWORD>(-1), HTTP_ADDREQ_FLAG_ADD);
+        }
+        if (!HttpSendRequestW(req, nullptr, 0, nullptr, 0)) {
+            const DWORD code = GetLastError();
+            InternetCloseHandle(req);
+            req = nullptr;
+            if (attempt == 0)
+                continue; // a stale kept connection looks like this
+            error = url + ": " + lastErrorText(code);
+            return false;
+        }
+        DWORD size = sizeof(status), index = 0;
+        status = 0;
+        HttpQueryInfoW(req, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &status, &size, &index);
+        if (status == 416 && have > 0) {
+            InternetCloseHandle(req);
+            req = nullptr;
+            ableem::DirEntry::removeFile(destFile);
+            have = 0;
+            continue;
+        }
+        break;
+    }
+    if (!req) {
         error = url + ": " + lastErrorText(GetLastError());
-        InternetCloseHandle(session);
         return false;
     }
     bool ok = true;
-    DWORD status = 0, size = sizeof(status), index = 0;
-    if (HttpQueryInfoW(file, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &status, &size, &index) &&
-        status != 200) {
+    if (status != 200 && status != 206 && status != 0) {
         error = url + ": HTTP " + to_string(status);
         ok = false;
     }
+    // 206 = the server went on where the part ends; a plain 200 sent the whole file again
+    const bool appending = ok && status == 206 && have > 0;
     uint64_t total = 0;
     wchar_t lengthText[64] = {0};
-    size = sizeof(lengthText);
-    index = 0;
-    if (ok && HttpQueryInfoW(file, HTTP_QUERY_CONTENT_LENGTH, lengthText, &size, &index))
+    DWORD size = sizeof(lengthText), index = 0;
+    if (ok && HttpQueryInfoW(req, HTTP_QUERY_CONTENT_LENGTH, lengthText, &size, &index))
         total = wcstoull(lengthText, nullptr, 10);
     if (ok) {
-        ofstream out(destFile, ios::binary | ios::trunc);
+        ofstream out(destFile, ios::binary | (appending ? ios::app : ios::trunc));
         if (!out) {
             error = "cannot write " + destFile;
             ok = false;
         }
+        const uint64_t before = appending ? have : 0; // the file's size when the body starts
         uint64_t done = 0;
-        char buf[65536];
+        static thread_local char buf[65536];
         DWORD got = 0;
-        while (ok && InternetReadFile(file, buf, sizeof(buf), &got) && got > 0) {
+        bool read = true;
+        while (ok && (read = InternetReadFile(req, buf, sizeof(buf), &got) != FALSE) && got > 0) {
             out.write(buf, got);
             done += got;
-            if (progress && !progress(done, total)) {
+            if (progress && !progress(before + done, total ? before + total : 0)) {
                 error = "Stopped";
                 ok = false;
             }
+        }
+        if (ok && !read) {
+            error = url + ": " + lastErrorText(GetLastError());
+            ok = false;
         }
         if (ok && !out) {
             error = "cannot write " + destFile;
@@ -296,11 +432,11 @@ bool WinInetDownloader::fetch(const string &url, const string &destFile, const P
             ok = false;
         }
         out.close();
-        if (!ok)
+        // a resumable fetch keeps what arrived, so the next run goes on from there; any other starts over
+        if (!ok && !resume)
             DeleteFileW(wide(destFile).c_str());
     }
-    InternetCloseHandle(file);
-    InternetCloseHandle(session);
+    InternetCloseHandle(req);
     return ok;
 }
 

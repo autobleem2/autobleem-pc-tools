@@ -8,6 +8,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -48,10 +50,34 @@ std::string programDirectory();
 //******************
 // WinInetDownloader
 //******************
+// where a URL points, cracked for WinINet
+struct WinInetTarget {
+    std::wstring host, path;
+    unsigned short port = 0;
+    bool secure = false;
+};
+
+// One WinINet session, a connection per thread and host kept alive between files, Range resume, safe to call from
+// several threads (connections() of them at once - the BIOS pack goes four files at a time).
 class WinInetDownloader : public Downloader {
 public:
+    WinInetDownloader();
+    ~WinInetDownloader() override;
+    WinInetDownloader(const WinInetDownloader &) = delete;
+    WinInetDownloader &operator=(const WinInetDownloader &) = delete;
     bool fetch(const std::string &url, const std::string &destFile, const Progress &progress,
                std::string &error) override;
+    bool fetchResumable(const std::string &url, const std::string &destFile, const Progress &progress,
+                        std::string &error) override;
+    int connections() const override { return 4; }
+
+private:
+    bool get(const std::string &url, const std::string &destFile, bool resume, const Progress &progress,
+             std::string &error);
+    void *connection(const WinInetTarget &target, bool fresh); // an HINTERNET, kept per thread and host
+    void *session_ = nullptr;                                  // an HINTERNET
+    std::mutex m_;
+    std::map<std::string, void *> connections_;
 };
 
 // attaches to the console the program was started from, when there is one, so --quiet's lines show up

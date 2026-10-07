@@ -18,6 +18,32 @@ downloads the package sha256-checked into its scratch folder and takes UpdateRom
 `--package FILE` (the `--quiet` path) still installs a local file. The zip the site offers is the exe and
 README only (autobleem-appliance's `assemble-psc.sh`).
 
+**The download with its own payload** (PLATFORM-23, the owner: everything but the BIOS files inside the download):
+`AutoBleemInstaller-<version>-full.zip` is the same exe next to a `payload/` folder (autobleem-appliance's
+`assemble-psc.sh` step 7 / `tools/psc_bundle.py`; locally `tools/make_installer_bundle.sh <package> --exe <exe>
+--payload <psc_bundle.py's out dir>`). `payload/bundle.json` (`ableem::BundleCatalog`: format, version, the stick
+package, every file's path = the path of its site URL, size, sha256) lists the packs the site would serve - the
+stick package, `psc/retroarch|cores|libs/apps` with their `latest.json`, `samples/`, `db/covers*.db` and sidecars,
+libretro's seven bundle zips as `assets/frontend/<name>.zip` - and `UpdateRoms/` sits beside the package. `main.cpp`
+looks for it next to the exe (`InstallerJob::bundleNextTo`: `payload/bundle.json`; `--payload DIR` names another,
+`--online` or an explicit `--channel`/`--package` ignores it) and sets `InstallOptions::bundleDir` and the package
+(`bundlePackage`). `InstallerJob::run` then puts a `LocalBundle` (autobleem-core, `installer/local_bundle.*`) in front
+of the real downloader: a URL whose path the manifest lists is answered from the folder, **checked once** (size, then
+sha256; a short, missing or changed file stops the run before anything is written, naming it) and read **in place**
+(`Downloader::localFile` - the job unpacks the zips and tarballs from the bundle's own files, nothing is copied to
+the scratch folder first; the cover databases are copied once, onto the stick, without a second hash); anything the
+manifest does not list (the BIOS list and files, `releases/*.json` for UpdateRoms of another release) goes to the
+downloader behind it, so the online mode is unchanged for the small exe. The window (`win32_window.cpp`) says "Install
+from: This download (<version>)" instead of the channel box and tells that only the BIOS files come from the internet.
+`--ps1-bios-only` (`InstallOptions::ps1BiosOnly`): with `--bios`, nothing is fetched - the console copies its own
+PlayStation BIOS at every boot.
+
+**WinInetDownloader** (`win32_platform.*`) keeps one WinINet session, a connection per thread and host open between files
+(`INTERNET_FLAG_KEEP_CONNECTION`; a stale kept connection is replaced once), resumes a `.part` with a Range request
+(`fetchResumable`: 206 appends, a plain 200 starts the file over, 416 drops the part and asks again whole) and is
+thread-safe (`connections()` = 4): the BIOS pack goes four files at a time (core's `InstallJobBase::fetchBiosPack`;
+a file a verified pass recorded in `.biospack-verified` is kept on its size alone).
+
 - **`InstallerJob`** (autobleem-core's `ab_installer`, `src/code/installer/installer_job.*` there since
   2026-09-23 - the console's own updater in the launcher runs it too; links `ab_core`, tested from
   autobleem-core's `tests/installer/test_installer_core.cpp` over a fake site and a package `tests/support/tar_builder.h`
