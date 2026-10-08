@@ -8,7 +8,9 @@
 //   AutoBleemInstaller.exe                       the window: pick the stick, answer the questions, Install
 //   AutoBleemInstaller.exe --quiet --drive F:    no window, the same on the console it was started from:
 //       [--channel release|testing|nightly|preview] [--covers JUP] [--retroarch] [--bios] [--samples]
-//       [--package FILE] [--repo URL]
+//       [--ps1-bios-only] [--force] [--package FILE] [--repo URL]
+//       --ps1-bios-only (implies --bios) fetches only the PlayStation BIOS files, nothing else
+//       --force reinstalls even when the stick already carries the package's version
 //       --channel defaults to the installer's own kind of build; --package installs a local file instead
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
 //
@@ -18,6 +20,7 @@
 //
 #include "installer/installer_job.h"
 #include "channel_choice.h"
+#include "install_args.h"
 #include "core/services/environment.h"
 #include "core/version.h"
 #include "win32_platform.h"
@@ -64,6 +67,7 @@ public:
 
 int usage() {
     cout << "USAGE: AutoBleemInstaller [--quiet --drive F: [--covers JUP] [--retroarch] [--bios] [--samples]]\n"
+            "                          [--ps1-bios-only] [--force]\n"
             "                          [--channel release|testing|nightly|preview] [--package FILE] [--repo URL]"
          << endl;
     return EXIT_FAILURE;
@@ -72,36 +76,11 @@ int usage() {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    bool quiet = false;
-    InstallOptions options;
-    string covers = "JUP";
-    for (int i = 1; i < argc; i++) {
-        string arg = argv[i];
-        auto value = [&](string &into) {
-            if (i + 1 >= argc)
-                return false;
-            into = argv[++i];
-            return true;
-        };
-        if (arg == "--quiet")
-            quiet = true;
-        else if (arg == "--retroarch")
-            options.retroarch = true;
-        else if (arg == "--bios")
-            options.bios = true;
-        else if (arg == "--samples")
-            options.samples = true;
-        else if (arg == "--drive" && value(options.root)) {
-        } else if (arg == "--covers" && value(covers)) {
-        } else if (arg == "--package" && value(options.packageFile)) {
-        } else if (arg == "--channel" && value(options.channel)) {
-        } else if (arg == "--repo" && value(options.repoUrl)) {
-        } else
-            return usage();
-    }
-    options.coversJapan = covers.find_first_of("Jj") != string::npos;
-    options.coversUsa = covers.find_first_of("Uu") != string::npos;
-    options.coversPal = covers.find_first_of("Pp") != string::npos;
+    InstallArgs args;
+    if (!parseInstallArgs(argc, argv, args))
+        return usage();
+    const bool quiet = args.quiet;
+    InstallOptions &options = args.options;
     // the channel the stick package comes from: the one the installer itself was built on, unless asked
     // (the window offers the site's others); a --package file is installed as it is
     if (options.channel.empty())

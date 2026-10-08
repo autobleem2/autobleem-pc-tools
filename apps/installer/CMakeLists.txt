@@ -13,7 +13,7 @@ add_executable(installer
         src/win32_window.h
 )
 set_target_properties(installer PROPERTIES OUTPUT_NAME AutoBleemInstaller)
-target_link_libraries(installer channel_choice ab_installer Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(installer channel_choice install_args ab_installer Threads::Threads ${CMAKE_DL_LIBS})
 
 if (WIN32)
     # a GUI-subsystem exe (no console window when double-clicked; --quiet attaches to the parent's), the

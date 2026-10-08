@@ -15,3 +15,8 @@ endif()
 add_library(channel_choice STATIC channel_choice.cpp channel_choice.h)
 target_include_directories(channel_choice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(channel_choice ab_installer)
+
+# install_args: the Installer's command line into InstallOptions (any platform - tested in tests/apps)
+add_library(install_args STATIC install_args.cpp install_args.h)
+target_include_directories(install_args PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(install_args ab_installer)
