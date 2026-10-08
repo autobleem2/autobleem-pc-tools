@@ -5,4 +5,6 @@ ab_add_test(test_updateroms_core apps/test_updateroms_core.cpp LIBS updateroms_c
 ab_add_test(test_lastresort_core apps/test_lastresort_core.cpp LIBS lastresort_core)
 ab_add_test(test_lanshare_core apps/test_lanshare_core.cpp LIBS lanshare_core)
 ab_add_test(test_channel_choice apps/test_channel_choice.cpp LIBS channel_choice)
+add_test(NAME nsi_emunxt_fonts COMMAND ${CMAKE_COMMAND}
+         -DNSI=${CMAKE_SOURCE_DIR}/installer/windows/autobleem.nsi -P ${CMAKE_CURRENT_SOURCE_DIR}/check_nsi_layout.cmake)
 # the installer job's suites run in autobleem-core (ab_installer)

@@ -158,6 +158,7 @@ Section "AutoBleem (required)" SecProgram
   RMDir /r "$INSTDIR\lang"
   RMDir /r "$INSTDIR\Themes"
   RMDir /r "$INSTDIR\emu"
+  RMDir /r "$INSTDIR\emunxt"
   ; the Linux makensis (the image) takes no backslash in a File spec, the Windows one no forward slash
 !ifdef NSIS_WIN32_MAKENSIS
   !searchreplace STAGE_WIN "${STAGE}" "/" "\"
@@ -165,6 +166,19 @@ Section "AutoBleem (required)" SecProgram
 !else
   File /r "${STAGE}/*.*"
 !endif
+  ; Chinese in pcsx-abnxt (direct mode) needs a fonts/ folder next to the emulator (emunxt\pcsx-ab.exe):
+  ; Chinese_Simplified.txt names NotoSansSC-Regular.otf. A package that already ships emunxt\fonts is left
+  ; alone; else the launcher's own fonts folder (the program folder's fonts\, or resources\fonts\) is copied.
+  ${If} ${FileExists} "$INSTDIR\emunxt\*.*"
+  ${AndIfNot} ${FileExists} "$INSTDIR\emunxt\fonts\NotoSansSC-Regular.otf"
+    ${If} ${FileExists} "$INSTDIR\fonts\NotoSansSC-Regular.otf"
+      CreateDirectory "$INSTDIR\emunxt\fonts"
+      CopyFiles /SILENT "$INSTDIR\fonts\*.*" "$INSTDIR\emunxt\fonts"
+    ${ElseIf} ${FileExists} "$INSTDIR\resources\fonts\NotoSansSC-Regular.otf"
+      CreateDirectory "$INSTDIR\emunxt\fonts"
+      CopyFiles /SILENT "$INSTDIR\resources\fonts\*.*" "$INSTDIR\emunxt\fonts"
+    ${EndIf}
+  ${EndIf}
   WriteRegStr HKCU "${REGKEY}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${REGKEY}" "DataRoot" "$DataRoot"
   WriteRegStr HKCU "${REGKEY}" "Version" "${VERSION}"
