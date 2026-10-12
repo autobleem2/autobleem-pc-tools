@@ -75,7 +75,7 @@ with Ninja and `-DAB_BUILD_TESTS=OFF -DAB_ENABLE_CHD=ON`.
 - `tools/make_installer_bundle.sh <autobleem-psc-<v>.tar.gz> [--out DIR] [--clean] [--exe EXE]` builds
   `build_installer/` and writes `AutoBleemInstaller-<v>.zip`.
 - `tools/make_updateroms_bundle.sh [--clean]` builds `build_updateroms/` and writes `build_win/UpdateRoms/`.
-- I have not run these scripts. They still configure with `-DAB_ENABLE_CHD=ON`, which the current top-level
+- These scripts are not run by CI. They still configure with `-DAB_ENABLE_CHD=ON`, which the current top-level
   `CMakeLists.txt` does not mention, so check that they still work before relying on them.
 
 `apps/common` (`ui_theme`) and the tools' Win32 targets are `if (WIN32)` only. The `*_core` libraries and
@@ -84,7 +84,7 @@ with Ninja and `-DAB_BUILD_TESTS=OFF -DAB_ENABLE_CHD=ON`.
 ## The autobleem-core submodule
 
 `.gitmodules` declares `autobleem-core` from `https://github.com/autobleem2/autobleem-core.git`. The pin is
-a commit, with no branch tracking. At the time of writing the pin is `3ba88a6`.
+a commit, with no branch tracking (`git submodule status` shows it).
 
     git submodule update --init            # first checkout
     git -C autobleem-core fetch origin
@@ -96,18 +96,17 @@ Changes to an installer or flasher job are made in autobleem-core, not here.
 
 ## Strings and translations
 
-I found none. A search of the repo's `.cpp` and `.h` files found no gettext, translation tables or locale
-files. UI text is English literals in the `*_window.cpp` files and in each `resources/README.txt`. The
-launcher's own string system, if it has one, is in the launcher or core repos and is not checked here.
+None: the tools are English only. There are no translation tables or locale files; UI text is English
+literals in the `*_window.cpp` files and in each `resources/README.txt`. The launcher's `_()` strings and
+language files live in the launcher.
 
 ## Where else to look
 
-- The core: `https://github.com/autobleem2/autobleem-core` (the submodule). Its docs were not available
-  while this file was written, because the submodule is not checked out here. Run
-  `git submodule update --init` and read them there.
+- The core: `https://github.com/autobleem2/autobleem-core` (the submodule): its `CLAUDE.md` and
+  `docs/developer-guide.md`, after `git submodule update --init`.
 - CI image and shared workflows: `autobleem2/autobleem-build` (`route.yml`, the `signpath-sign` and
   `nightly-release` actions that `build.yml` uses).
-- The launcher: `autobleem2/autobleem` (not checked here). Several `apps/*/CLAUDE.md` files cite plans such as
+- The launcher: `autobleem2/autobleem`. Several `apps/*/CLAUDE.md` files cite plans such as
   `docs/pc-targets-plan.md` and `docs/retroarch-scanner-plan.md`. Those files are not in this repo's
   `docs/`, so they live in another repo.
 - Packaging consumers named in `build.yml`: `autobleem-appliance` (`assemble-psc.sh` builds the site zips) and
