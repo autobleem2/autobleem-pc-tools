@@ -15,3 +15,8 @@ endif()
 add_library(channel_choice STATIC channel_choice.cpp channel_choice.h)
 target_include_directories(channel_choice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(channel_choice ab_installer)
+
+# installer_args: AutoBleemInstaller's command line (tested without the program)
+add_library(installer_args STATIC installer_args.cpp installer_args.h)
+target_include_directories(installer_args PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(installer_args ab_installer)

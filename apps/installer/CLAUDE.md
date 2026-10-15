@@ -67,7 +67,9 @@ README only (autobleem-appliance's `assemble-psc.sh`).
   between files and inside a download.
 - **`installer`** (`AutoBleemInstaller.exe`): `main.cpp` (the arguments; `--quiet --drive F:
   [--covers JUP] [--retroarch] [--bios] [--samples] [--package F] [--repo U]` prints the lines on the
-  console it was started from; the package is looked for next to the exe by `GetModuleFileName`, not
+  console it was started from; parsed in `apps/common/installer_args.*` (tested: `--bios` without
+  `--retroarch` warns and is dropped - the PlayStation BIOS comes from the console, nothing here overwrites
+  an installed BIOS; any other option, `--ps1-bios-only` included, is unknown and prints the usage); the package is looked for next to the exe by `GetModuleFileName`, not
   argv[0]), `win32_platform.*` (`listRemovableDrives()` - `DRIVE_REMOVABLE` only, label, file system,
   sizes, an unformatted one flagged; `formatDrive()` - Windows' `format.com /FS:FAT32|exFAT /Q /V:SONY
   /Y` through a pipe, or `fat32format.exe` next to the exe for FAT32 above 32 GB, which `format.com`
