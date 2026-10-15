@@ -11,6 +11,7 @@
 //       [--package FILE] [--repo URL]
 //       --channel defaults to the installer's own kind of build; --package installs a local file instead
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
+//       --bios needs --retroarch (the packs go into RetroArch's system folder); alone it warns and does nothing
 //
 // On Windows a plain Win32 window (win32_window.cpp), statically linked: one file, nothing to install.
 // Elsewhere (a Linux or macOS build) there is the --quiet path only, and a download command instead of
@@ -18,6 +19,7 @@
 //
 #include "installer/installer_job.h"
 #include "channel_choice.h"
+#include "installer_args.h"
 #include "core/services/environment.h"
 #include "core/version.h"
 #include "win32_platform.h"
@@ -28,6 +30,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <vector>
 
 using namespace std;
 
@@ -72,33 +75,14 @@ int usage() {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    bool quiet = false;
-    InstallOptions options;
-    string covers = "JUP";
-    for (int i = 1; i < argc; i++) {
-        string arg = argv[i];
-        auto value = [&](string &into) {
-            if (i + 1 >= argc)
-                return false;
-            into = argv[++i];
-            return true;
-        };
-        if (arg == "--quiet")
-            quiet = true;
-        else if (arg == "--retroarch")
-            options.retroarch = true;
-        else if (arg == "--bios")
-            options.bios = true;
-        else if (arg == "--samples")
-            options.samples = true;
-        else if (arg == "--drive" && value(options.root)) {
-        } else if (arg == "--covers" && value(covers)) {
-        } else if (arg == "--package" && value(options.packageFile)) {
-        } else if (arg == "--channel" && value(options.channel)) {
-        } else if (arg == "--repo" && value(options.repoUrl)) {
-        } else
-            return usage();
-    }
+    installerargs::Parsed parsed;
+    if (!installerargs::parse(vector<string>(argv + 1, argv + argc), parsed))
+        return usage();
+    for (const string &warning : parsed.warnings)
+        cout << warning << endl;
+    const bool quiet = parsed.quiet;
+    InstallOptions &options = parsed.options;
+    const string &covers = parsed.covers;
     options.coversJapan = covers.find_first_of("Jj") != string::npos;
     options.coversUsa = covers.find_first_of("Uu") != string::npos;
     options.coversPal = covers.find_first_of("Pp") != string::npos;

@@ -5,4 +5,5 @@ ab_add_test(test_updateroms_core apps/test_updateroms_core.cpp LIBS updateroms_c
 ab_add_test(test_lastresort_core apps/test_lastresort_core.cpp LIBS lastresort_core)
 ab_add_test(test_lanshare_core apps/test_lanshare_core.cpp LIBS lanshare_core)
 ab_add_test(test_channel_choice apps/test_channel_choice.cpp LIBS channel_choice)
+ab_add_test(test_installer_args apps/test_installer_args.cpp LIBS installer_args)
 # the installer job's suites run in autobleem-core (ab_installer)
