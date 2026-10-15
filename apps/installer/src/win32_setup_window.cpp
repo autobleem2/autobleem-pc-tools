@@ -7,6 +7,7 @@
 
 #include "win32_setup_window.h"
 #include "win32_platform.h"
+#include "installer_args.h"
 #include "ui_theme.h"
 
 #include "core/services/environment.h"
@@ -172,6 +173,14 @@ string folderText(Window &w) {
 
 void layout(Window &w);
 
+// the BIOS pack goes into RetroArch's system folder: the choice is open only with RetroArch chosen or present
+void updateBiosChoice(Window &w) {
+    const bool withRetroArch = checked(w.retroarch) || w.info.hasRetroArch;
+    EnableWindow(w.bios, withRetroArch);
+    if (!withRetroArch)
+        setChecked(w.bios, false);
+}
+
 // the status line under the folder: what is there already
 void describeFolder(Window &w) {
     WindowsInstallOptions o = w.defaults;
@@ -190,12 +199,7 @@ void describeFolder(Window &w) {
                 " installed.";
     SetWindowTextW(w.status, wide(text).c_str());
     layout(w); // the window grows with the status text
-    // the PlayStation BIOS is wanted with or without RetroArch; the pack's size follows the choice
-    const bool withRetroArch = checked(w.retroarch) || w.info.hasRetroArch;
-    SetWindowTextW(w.bios,
-                   withRetroArch
-                       ? L"Download the BIOS files (PlayStation, and every core's - about 300 MB, from RetroBIOS)"
-                       : L"Download the PlayStation BIOS files (about 1 MB, from RetroBIOS)");
+    updateBiosChoice(w);
     EnableWindow(w.install, w.info.exists);
 }
 
@@ -262,7 +266,7 @@ void startInstall(Window &w) {
     o.coversUsa = checked(w.coversU);
     o.coversPal = checked(w.coversP);
     o.retroarch = checked(w.retroarch);
-    o.bios = checked(w.bios);
+    o.bios = installerargs::biosWanted(checked(w.bios), o.retroarch, w.info.hasRetroArch);
     o.samples = checked(w.samples);
     {
         lock_guard<mutex> lock(w.state.m);
@@ -376,7 +380,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         w->retroarch =
             make(*w, L"BUTTON", L"Install RetroArch (emulators for the other systems, with every core - about 1.5 GB)",
                  WS_TABSTOP | BS_AUTOCHECKBOX, IdRetroArch);
-        w->bios = make(*w, L"BUTTON", L"Download the PlayStation BIOS files (about 1 MB, from RetroBIOS)",
+        w->bios = make(*w, L"BUTTON", L"Download the BIOS files the cores need (about 300 MB, from RetroBIOS)",
                        WS_TABSTOP | BS_AUTOCHECKBOX, IdBios);
         w->samples = make(*w, L"BUTTON", L"Add the sample games (free homebrew, so the shelf is not empty)",
                           WS_TABSTOP | BS_AUTOCHECKBOX, IdSamples);

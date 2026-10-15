@@ -13,7 +13,7 @@ add_executable(installer
         src/win32_window.h
 )
 set_target_properties(installer PROPERTIES OUTPUT_NAME AutoBleemInstaller)
-target_link_libraries(installer channel_choice installer_argsab_installer Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(installer channel_choice installer_args ab_installer Threads::Threads ${CMAKE_DL_LIBS})
 
 if (WIN32)
     # a GUI-subsystem exe (no console window when double-clicked; --quiet attaches to the parent's), the
@@ -45,7 +45,7 @@ add_executable(winsetup
         src/win32_setup_window.h
 )
 set_target_properties(winsetup PROPERTIES OUTPUT_NAME AutoBleemWinSetup)
-target_link_libraries(winsetup ab_installer Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(winsetup installer_args ab_installerThreads::Threads ${CMAKE_DL_LIBS})
 if (WIN32)
     # winsetup_exe.rc: the manifest, the icon, the shared look's fonts (ui_theme) and this program's hero
     target_sources(winsetup PRIVATE src/winsetup_exe.rc)

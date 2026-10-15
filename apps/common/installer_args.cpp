@@ -15,6 +15,13 @@ string biosWithoutRetroArchWarning(bool bios, bool retroarch) {
 }
 
 //*******************************
+// biosWanted
+//*******************************
+bool biosWanted(bool bios, bool retroarch, bool retroarchPresent) {
+    return bios && (retroarch || retroarchPresent);
+}
+
+//*******************************
 // parse
 //*******************************
 bool parse(const vector<string> &args, Parsed &out) {

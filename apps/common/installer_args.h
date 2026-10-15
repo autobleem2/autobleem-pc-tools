@@ -1,6 +1,6 @@
 //
 // The command line of AutoBleemInstaller, parsed apart from main() so the tests can run it: the options it sets,
-// the one it rejects (anything not listed is unknown - --ps1-bios-only is gone), and the warning for --bios without
+// the one it rejects (anything not listed is unknown), and the warning for --bios without
 // --retroarch.
 //
 #pragma once
@@ -25,5 +25,8 @@ bool parse(const std::vector<std::string> &args, Parsed &out);
 // --bios without --retroarch fetches nothing: the PlayStation BIOS comes from the console (the bootstrap, the
 // payload's OpenBIOS) and the packs go only into RetroArch's system folder. "" when there is nothing to warn about.
 std::string biosWithoutRetroArchWarning(bool bios, bool retroarch);
+
+// whether the BIOS pack is fetched: asked for, and RetroArch is being installed or already there
+bool biosWanted(bool bios, bool retroarch, bool retroarchPresent);
 
 } // namespace installerargs

@@ -1,6 +1,6 @@
 //
 // installer_args: AutoBleemInstaller's command line - --bios with RetroArch is kept, without it a warning and a
-// no-op, and --ps1-bios-only (removed) is an unknown option.
+// no-op; biosWanted decides the same for the Windows setup, where RetroArch may already be installed.
 //
 #include "doctest/doctest.h"
 
@@ -37,11 +37,13 @@ TEST_CASE("no --bios, no warning") {
     CHECK(p.warnings.empty());
 }
 
-TEST_CASE("--ps1-bios-only is rejected as unknown") {
-    Parsed p;
-    CHECK_FALSE(installerargs::parse({"--quiet", "--drive", "F:", "--ps1-bios-only"}, p));
-    Parsed q;
-    CHECK_FALSE(installerargs::parse({"--ps1-bios-only", "--retroarch", "--bios"}, q));
+TEST_CASE("the BIOS pack is wanted only with RetroArch, chosen or already there") {
+    CHECK(installerargs::biosWanted(true, true, false));
+    CHECK(installerargs::biosWanted(true, false, true));
+    CHECK(installerargs::biosWanted(true, true, true));
+    CHECK_FALSE(installerargs::biosWanted(true, false, false));
+    CHECK_FALSE(installerargs::biosWanted(false, true, true));
+    CHECK_FALSE(installerargs::biosWanted(false, false, false));
 }
 
 TEST_CASE("a missing value and an unknown option are rejected") {

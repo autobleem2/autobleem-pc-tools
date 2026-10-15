@@ -16,6 +16,7 @@
 // --program to the folder this exe is in.
 //
 #include "installer/windows_install_job.h"
+#include "installer_args.h"
 #include "core/services/environment.h"
 #include "core/version.h"
 #include "win32_platform.h"
@@ -123,6 +124,15 @@ int main(int argc, char *argv[]) {
     ableem::Log::initConsoleOnly();
     PLOG_INFO << "AutoBleem setup " << Env::productVersion() << " (" << Version::FULL_VERSION << ")" << ", program " << options.programDir << ", data "
               << options.dataRoot;
+
+    // the BIOS pack goes into RetroArch's system folder: without RetroArch (chosen or there) nothing is fetched
+    if (options.bios && !options.dataRoot.empty()) {
+        const bool present = WindowsInstallJob::inspect(options).hasRetroArch;
+        const string warning = installerargs::biosWithoutRetroArchWarning(options.bios, options.retroarch || present);
+        if (!warning.empty())
+            PLOG_WARNING << warning;
+        options.bios = installerargs::biosWanted(options.bios, options.retroarch, present);
+    }
 
     if (!quiet) {
 #ifdef _WIN32

@@ -69,7 +69,7 @@ README only (autobleem-appliance's `assemble-psc.sh`).
   [--covers JUP] [--retroarch] [--bios] [--samples] [--package F] [--repo U]` prints the lines on the
   console it was started from; parsed in `apps/common/installer_args.*` (tested: `--bios` without
   `--retroarch` warns and is dropped - the PlayStation BIOS comes from the console, nothing here overwrites
-  an installed BIOS; any other option, `--ps1-bios-only` included, is unknown and prints the usage); the package is looked for next to the exe by `GetModuleFileName`, not
+  an installed BIOS; any other option is unknown and prints the usage); the package is looked for next to the exe by `GetModuleFileName`, not
   argv[0]), `win32_platform.*` (`listRemovableDrives()` - `DRIVE_REMOVABLE` only, label, file system,
   sizes, an unformatted one flagged; `formatDrive()` - Windows' `format.com /FS:FAT32|exFAT /Q /V:SONY
   /Y` through a pipe, or `fat32format.exe` next to the exe for FAT32 above 32 GB, which `format.com`
@@ -114,7 +114,9 @@ place of the stick, the same progress page; `AutoBleemWinSetup.exe --run --root 
 [--covers JUP] [--retroarch] [--bios] [--samples]` is what the installer runs (`--run`: straight to the
 progress page, the wizard asked the questions), `--quiet --update` what a silent `/S` update runs, and
 the Start Menu's "AutoBleem Setup" (no flags) shows the questions again to add RetroArch or the BIOS
-files later.
+files later. There is no "PlayStation BIOS only" choice (AUTOBLEEM-38): `--bios` / the BIOS checkbox / the NSIS BIOS
+section count only with RetroArch chosen or already installed (`installerargs::biosWanted`, applied in
+`main_winsetup.cpp` and the window); otherwise nothing is fetched and the OpenBIOS / Sony BIOS in place stays.
 
 - **`WindowsInstallJob`** (`ab_installer`'s `installer/windows_install_job.*`, on `InstallJobBase` - the phase/line
   reporting, `downloadVerified`, `fetchCatalog`, `untar` and the BIOS pack loop the two jobs share;
