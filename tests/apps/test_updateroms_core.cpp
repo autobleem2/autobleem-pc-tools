@@ -224,6 +224,11 @@ TEST_CASE("run: online, the databases bundle comes first and the box art after t
     report = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, server.runner());
     CHECK(report.playlistsWritten.empty());
     CHECK(server.urls == vector<string>{"https://thumbnails.libretro.com/"});
+
+    // the scan's per-folder digests are kept in the launcher's own file
+    CHECK(setup.scanStateFile.find(stick.tmp.path()) == 0);
+    CHECK(setup.scanStateFile.find("roms.scanstate") != string::npos);
+    CHECK(DirEntry::exists(setup.scanStateFile));
 }
 
 TEST_CASE("run: an entry a scan on this PC wrote with this PC's path is made to name the target's") {

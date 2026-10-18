@@ -96,6 +96,7 @@ bool UpdateRomsJob::detect(const string &root, Setup &setup, string &error, cons
     setup.coresCfg = setup.resourcesDir + sep + "platform" + sep + setup.target + ".cores.cfg";
     setup.aliasesCfg = setup.resourcesDir + sep + "platform" + sep + "roms_folders.cfg";
     setup.downloadCommand = pc.downloadCommand;
+    setup.scanStateFile = Env::getPathToStateDir() + sep + "roms.scanstate";
 
     if (!DirEntry::isDirectory(setup.retroarchDir)) {
         error = "No RetroArch on this stick (" + setup.retroarchDir + ") - nothing to do";
@@ -148,6 +149,11 @@ UpdateRomsJob::Report UpdateRomsJob::run(const Setup &setup, ableem::ScanProgres
     options.targetRomsDir = setup.targetRomsDir;
     options.folderAliases = ableem::RetroArchScanner::loadFolderAliases(setup.aliasesCfg);
     options.rdbDir = report.databases > 0 ? setup.rdbDir : "";
+    // a folder nothing changed in is not scanned again; the file is the launcher's, so the two share it
+    if (!setup.scanStateFile.empty()) {
+        DirEntry::createDirs(setup.scanStateFile.substr(0, setup.scanStateFile.find_last_of('/')));
+        options.stateFile = setup.scanStateFile;
+    }
     // the cores as the target will find them, not as this PC sees the stick
     ableem::RetroArchSystems systems = ableem::RetroArchScanner::systemsFrom(cores);
     const string coresHere = setup.retroarchDir + "/";

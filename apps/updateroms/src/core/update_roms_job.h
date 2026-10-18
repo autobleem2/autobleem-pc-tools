@@ -33,6 +33,7 @@ public:
         std::string retroarchDir, romsDir, playlistsDir, rdbDir, thumbnailsDir;
         std::string targetRetroarchDir, targetRomsDir; // the same two as the target names them
         std::string coresCfg, aliasesCfg;
+        std::string scanStateFile; // <state>/roms.scanstate, the launcher's own (the digests are portable)
         std::string downloadCommand; // the PC's
     };
 
