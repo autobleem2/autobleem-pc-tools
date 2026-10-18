@@ -41,6 +41,7 @@ public:
         bool online = false;
         int databases = 0; // .rdb files in place after the run
         int systems = 0, games = 0, identified = 0;
+        int systemsSkipped = 0; // folders left alone: nothing in them changed since the last run
         std::vector<std::string> playlistsWritten;
         std::vector<std::string> unknownFolders;
         int boxArtFetched = 0, boxArtMissing = 0;

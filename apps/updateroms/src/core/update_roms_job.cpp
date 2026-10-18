@@ -33,6 +33,12 @@ string normalized(string path) {
     return DirEntry::removeSeparatorFromEndOfPath(path);
 }
 
+// the folder a file is in, whichever separator the path uses; "" when it names no folder
+string dirName(const string &path) {
+    size_t slash = path.find_last_of("/\\");
+    return slash == string::npos ? string() : path.substr(0, slash);
+}
+
 } // namespace
 
 //*******************************
@@ -151,7 +157,9 @@ UpdateRomsJob::Report UpdateRomsJob::run(const Setup &setup, ableem::ScanProgres
     options.rdbDir = report.databases > 0 ? setup.rdbDir : "";
     // a folder nothing changed in is not scanned again; the file is the launcher's, so the two share it
     if (!setup.scanStateFile.empty()) {
-        DirEntry::createDirs(setup.scanStateFile.substr(0, setup.scanStateFile.find_last_of('/')));
+        const string stateDir = dirName(setup.scanStateFile);
+        if (!stateDir.empty())
+            DirEntry::createDirs(stateDir);
         options.stateFile = setup.scanStateFile;
     }
     // the cores as the target will find them, not as this PC sees the stick
@@ -164,13 +172,14 @@ UpdateRomsJob::Report UpdateRomsJob::run(const Setup &setup, ableem::ScanProgres
     ableem::RetroArchScanner scanner(listener);
     ableem::RetroArchScanResult result = scanner.scan(options, systems);
     report.systems = result.systemsScanned;
+    report.systemsSkipped = result.systemsSkipped;
     report.games = result.gamesFound;
     report.identified = result.gamesIdentified;
     report.playlistsWritten = result.playlistsWritten;
     report.unknownFolders = result.unknownFolders;
     say(to_string(result.gamesFound) + " games in " + to_string(result.systemsScanned) + " systems, " +
         to_string(result.gamesIdentified) + " named by the databases, " + to_string(result.playlistsWritten.size()) +
-        " playlists written");
+        " playlists written, " + to_string(result.systemsSkipped) + " folders unchanged");
     for (const string &folder : result.unknownFolders)
         say("No core plays " + folder + " - skipped");
     if (shouldStop && shouldStop())
