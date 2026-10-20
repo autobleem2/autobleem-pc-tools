@@ -111,3 +111,8 @@ language files live in the launcher.
   `docs/`, so they live in another repo.
 - Packaging consumers named in `build.yml`: `autobleem-appliance` (`assemble-psc.sh` builds the site zips) and
   `autobleem-repo` (download site, `tools/repo_publish.sh`).
+
+## Host test
+- `ci/host-test.sh [build-dir]`: cmake (Ninja, `AB_TARGET=dev`) configure, build, `ctest --output-on-failure`; the exit code is the result.
+- Needs cmake, ninja and a C++14 compiler, and the submodule initialised (`git submodule update --init`).
+- The Windows-only programs (`win32_setup_window.cpp`, the `.rc` files) are not covered: they need the llvm-mingw cross build (`build.yml`).
