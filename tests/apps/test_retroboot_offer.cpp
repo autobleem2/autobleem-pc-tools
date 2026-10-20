@@ -87,7 +87,8 @@ TEST_CASE("the size is the files of the retroboot tree, rounded to MB, never a f
 
 TEST_CASE("a non-ASCII file name inside the tree is counted and does not stop the check") {
     TempDir tmp("rbo_utf8");
-    tmp.writeFile("RetroArch/bin/retroboot/gry/Pok\xC3\xA9mon \xE2\x80\x93 \xC5\x81\xC3\xB3d\xC5\xBA.txt", "abc");
+    tmp.writeFile("RetroArch/bin/retroboot/gry/Pok\xC3\xA9mon \xE2\x80\x93 \xC5\x81\xC3\xB3"
+                  "d\xC5\xBA.txt", "abc");
     CHECK(offerRemoveRetroBoot(tmp.path(), false));
     CHECK(retroBootBytes(tmp.path(), false) == 3);
 }
