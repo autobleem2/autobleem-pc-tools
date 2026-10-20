@@ -10,6 +10,7 @@
 #include "win32_platform.h"
 #include "ui_theme.h"
 #include "channel_choice.h"
+#include "retroboot_offer.h"
 
 #include "core/services/environment.h"
 #include "core/version.h"
@@ -63,6 +64,7 @@ enum Ids {
     IdRetroArch,
     IdBios,
     IdSamples,
+    IdRemoveRetroBoot, // the last checkbox: isCheckbox() ends here
     IdInstall,
     IdAction, // Stop / Close / Back on the progress page
     IdChannel,
@@ -140,6 +142,11 @@ struct Window {
     HWND drivesLabel = nullptr, drives = nullptr, refresh = nullptr, formatFs = nullptr, format = nullptr;
     HWND status = nullptr, coversLabel = nullptr, coversJ = nullptr, coversU = nullptr, coversP = nullptr;
     HWND retroarch = nullptr, bios = nullptr, samples = nullptr, install = nullptr;
+    // the RetroBoot question: shown (and counted by layout) only when the chosen stick has RetroBoot's tree
+    HWND removeRetroBoot = nullptr, retroBootHelp = nullptr;
+    bool retroBootOffered = false;
+    uint64_t retroBootBytes = 0;
+    string retroBootRoot; // the stick the offer and the size were worked out for
     // the progress
     HWND phaseLabel = nullptr, phaseBar = nullptr, bar = nullptr, log = nullptr, action = nullptr;
     HFONT font = nullptr, bold = nullptr; // Red Hat Text Medium / SemiBold (uitheme), Segoe UI when they fail
@@ -186,7 +193,7 @@ void setChecked(HWND h, bool on) {
 }
 
 bool isCheckbox(int id) {
-    return id >= IdCoversJ && id <= IdSamples; // the six BS_AUTOCHECKBOX buttons, in the enum's order
+    return id >= IdCoversJ && id <= IdRemoveRetroBoot; // the seven BS_AUTOCHECKBOX buttons, in the enum's order
 }
 
 const UINT WmChannelsLooked = WM_APP + 1;
@@ -217,6 +224,8 @@ void showPage(Window &w, bool progress) {
     for (HWND h : {w.channelLabel, w.channel, w.drivesLabel, w.drives, w.refresh, w.formatFs, w.format, w.status,
                    w.coversLabel, w.coversJ, w.coversU, w.coversP, w.retroarch, w.bios, w.samples, w.install})
         ShowWindow(h, progress ? SW_HIDE : SW_SHOW);
+    for (HWND h : {w.removeRetroBoot, w.retroBootHelp})
+        ShowWindow(h, !progress && w.retroBootOffered ? SW_SHOW : SW_HIDE);
     for (HWND h : {w.phaseLabel, w.phaseBar, w.bar, w.log, w.action})
         ShowWindow(h, progress ? SW_SHOW : SW_HIDE);
 }
@@ -229,6 +238,22 @@ string selectedRoot(Window &w) {
 }
 
 void layout(Window &w);
+
+// the RetroBoot question for the stick in `root` (w.info is that stick's): offered only when its tree is there, the
+// size worked out once per stick (a drive change or Refresh clears retroBootRoot), a tick never kept when it is not
+void updateRetroBoot(Window &w, const string &root) {
+    const bool offered = !root.empty() && w.info.isStick && retrobootoffer::offerRemoveRetroBoot(root, w.info.legacyLayout);
+    if (offered && (root != w.retroBootRoot || !w.retroBootOffered)) {
+        w.retroBootBytes = retrobootoffer::retroBootBytes(root, w.info.legacyLayout);
+        SetWindowTextW(w.removeRetroBoot, wide(retrobootoffer::checkboxLabel(w.retroBootBytes)).c_str());
+    }
+    w.retroBootRoot = offered ? root : string();
+    w.retroBootOffered = offered;
+    if (!offered)
+        setChecked(w.removeRetroBoot, false);
+    for (HWND h : {w.removeRetroBoot, w.retroBootHelp})
+        ShowWindow(h, offered && !w.progressPage ? SW_SHOW : SW_HIDE);
+}
 
 // the stick's state under the drive box, and what the buttons may do
 void describeStick(Window &w) {
@@ -292,7 +317,8 @@ void describeStick(Window &w) {
         canInstall = false;
     }
     SetWindowTextW(w.status, wide(text).c_str());
-    layout(w); // the window grows with the status text
+    updateRetroBoot(w, root);
+    layout(w); // the window grows with the status text and the RetroBoot row
     SetWindowTextW(w.install, w.info.installed ? L"Update" : L"Install");
     EnableWindow(w.install, canInstall);
     EnableWindow(w.format, !root.empty());
@@ -303,6 +329,8 @@ void describeStick(Window &w) {
 
 void refreshDrives(Window &w) {
     string keep = selectedRoot(w);
+    setChecked(w.removeRetroBoot, false); // a tick never moves from one stick to another
+    w.retroBootRoot.clear();              // and the size is worked out again
     w.driveList = listRemovableDrives();
     SendMessage(w.drives, CB_RESETCONTENT, 0, 0);
     int select = 0;
@@ -345,6 +373,14 @@ void layout(Window &w) {
     MoveWindow(w.bios, x + px(20), y, inner - px(20), px(22), TRUE);
     y += px(26);
     MoveWindow(w.samples, x, y, inner, px(22), TRUE);
+    if (w.retroBootOffered) {
+        // the only option that deletes: a little more room above it, its helper line under it
+        y += px(30);
+        MoveWindow(w.removeRetroBoot, x, y, inner, px(22), TRUE);
+        y += px(22);
+        MoveWindow(w.retroBootHelp, x + px(20), y, inner - px(20), px(18), TRUE);
+        y += px(18);
+    }
     y += px(34);
     MoveWindow(w.install, W - margin - px(110), y, px(110), px(30), TRUE);
     const int questionsBottom = y + px(30) + margin;
@@ -379,6 +415,7 @@ void startInstall(Window &w) {
     o.retroarch = checked(w.retroarch);
     o.bios = checked(w.bios);
     o.samples = checked(w.samples);
+    o.removeRetroBoot = w.retroBootOffered && checked(w.removeRetroBoot); // hidden = never
     w.state.reset(false);
     showPage(w, true);
     SendMessage(w.log, LB_RESETCONTENT, 0, 0);
@@ -404,6 +441,15 @@ void startInstall(Window &w) {
         }
         w.state.finished.store(true);
     });
+}
+
+// the last word before RetroBoot's folders go: No (the default) = back to the questions, nothing starts
+bool confirmRemoveRetroBoot(Window &w) {
+    if (!w.retroBootOffered || !checked(w.removeRetroBoot))
+        return true;
+    const wstring text = wide(retrobootoffer::confirmationText(selectedRoot(w), w.retroBootBytes));
+    return MessageBoxW(w.hwnd, text.c_str(), L"AutoBleem - remove RetroBoot",
+                       MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
 }
 
 void startFormat(Window &w) {
@@ -567,6 +613,10 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                        WS_TABSTOP | BS_AUTOCHECKBOX, IdBios);
         w->samples = make(*w, L"BUTTON", L"Add the sample games (free homebrew, so the shelf is not empty)",
                           WS_TABSTOP | BS_AUTOCHECKBOX, IdSamples);
+        // after samples and before Install, so Tab goes samples -> RetroBoot -> Install
+        w->removeRetroBoot = make(*w, L"BUTTON", L"Remove the RetroBoot leftovers", WS_TABSTOP | BS_AUTOCHECKBOX,
+                                  IdRemoveRetroBoot);
+        w->retroBootHelp = make(*w, L"STATIC", wide(retrobootoffer::helperLine()).c_str(), SS_LEFT, 0);
         w->install =
             make(*w, L"BUTTON", L"Install", WS_TABSTOP | BS_OWNERDRAW, IdInstall); // the default one: DM_GETDEFID
         for (HWND h : {w->coversJ, w->coversU, w->coversP})
@@ -599,6 +649,11 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CTLCOLOREDIT: {
         // the dark look; the combo boxes are not touched (the system draws them)
         LRESULT brush = 0;
+        if (w && msg == WM_CTLCOLORSTATIC && reinterpret_cast<HWND>(lParam) == w->retroBootHelp) {
+            SetTextColor(reinterpret_cast<HDC>(wParam), uitheme::TextDim); // the helper line is quiet text
+            SetBkColor(reinterpret_cast<HDC>(wParam), uitheme::Graphite);
+            return reinterpret_cast<LRESULT>(uitheme::graphiteBrush());
+        }
         if (uitheme::controlColor(msg, reinterpret_cast<HDC>(wParam), reinterpret_cast<HWND>(lParam), brush))
             return brush;
         return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -643,6 +698,10 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (HIWORD(wParam) == CBN_SELCHANGE) {
                 if (LOWORD(wParam) == IdChannel)
                     w->channelPicked = true;
+                else {
+                    setChecked(w->removeRetroBoot, false); // another stick: the tick does not come along
+                    w->retroBootRoot.clear();
+                }
                 describeStick(*w);
             }
             break;
@@ -659,7 +718,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             break;
         case IdInstall:
-            if (!w->progressPage) {
+            if (!w->progressPage && confirmRemoveRetroBoot(*w)) {
                 startInstall(*w);
                 SetTimer(hwnd, IdTimer, 100, nullptr);
             }

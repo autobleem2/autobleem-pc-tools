@@ -44,6 +44,15 @@ TEST_CASE("--ps1-bios-only is rejected as unknown") {
     CHECK_FALSE(installerargs::parse({"--ps1-bios-only", "--retroarch", "--bios"}, q));
 }
 
+TEST_CASE("--remove-retroboot sets the option; without it the default is off") {
+    Parsed p;
+    REQUIRE(installerargs::parse({"--quiet", "--drive", "F:"}, p));
+    CHECK_FALSE(p.options.removeRetroBoot);
+    Parsed q;
+    REQUIRE(installerargs::parse({"--quiet", "--drive", "F:", "--remove-retroboot"}, q));
+    CHECK(q.options.removeRetroBoot);
+}
+
 TEST_CASE("a missing value and an unknown option are rejected") {
     Parsed p;
     CHECK_FALSE(installerargs::parse({"--drive"}, p));
