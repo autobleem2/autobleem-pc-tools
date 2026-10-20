@@ -226,6 +226,44 @@ TEST_CASE("run: online, the databases bundle comes first and the box art after t
     CHECK(server.urls == vector<string>{"https://thumbnails.libretro.com/"});
 }
 
+TEST_CASE("run: the scan's digests live in the stick's state directory, where the launcher reads them") {
+    FakeStick stick;
+    stick.addRom("lolo.nes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+    // the launcher's state dir on a stick is its working path, Autobleem/bin/autobleem
+    CHECK(setup.scanStateFile == fwd(stick.tmp.at("Autobleem/bin/autobleem/roms.scanstate")));
+    CHECK_FALSE(DirEntry::exists(setup.scanStateFile));
+
+    UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(DirEntry::exists(stick.tmp.at("Autobleem/bin/autobleem/roms.scanstate")));
+}
+
+TEST_CASE("run: a second run leaves a folder that did not change alone, a changed one is scanned") {
+    FakeStick stick;
+    stick.addRom("lolo.nes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+
+    UpdateRomsJob::Report first = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(first.systemsSkipped == 0);
+    CHECK(first.games == 1);
+    CHECK(stick.playlist().size() == 1);
+
+    UpdateRomsJob::Report second = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(second.systemsSkipped == 1);
+    CHECK(second.playlistsWritten.empty());
+    CHECK(stick.playlist().size() == 1);
+
+    stick.addRom("lolo2.nes");
+    UpdateRomsJob::Report third = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(third.systemsSkipped == 0);
+    CHECK(third.games == 2);
+    CHECK(stick.playlist().size() == 2);
+}
+
 TEST_CASE("run: an entry a scan on this PC wrote with this PC's path is made to name the target's") {
     FakeStick stick;
     stick.addRom("lolo.nes");

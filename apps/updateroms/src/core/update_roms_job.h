@@ -33,6 +33,7 @@ public:
         std::string retroarchDir, romsDir, playlistsDir, rdbDir, thumbnailsDir;
         std::string targetRetroarchDir, targetRomsDir; // the same two as the target names them
         std::string coresCfg, aliasesCfg;
+        std::string scanStateFile; // <state>/roms.scanstate, the launcher's own (the digests are portable)
         std::string downloadCommand; // the PC's
     };
 
@@ -40,6 +41,7 @@ public:
         bool online = false;
         int databases = 0; // .rdb files in place after the run
         int systems = 0, games = 0, identified = 0;
+        int systemsSkipped = 0; // folders left alone: nothing in them changed since the last run
         std::vector<std::string> playlistsWritten;
         std::vector<std::string> unknownFolders;
         int boxArtFetched = 0, boxArtMissing = 0;
