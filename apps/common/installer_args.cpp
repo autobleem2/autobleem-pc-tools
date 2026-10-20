@@ -34,6 +34,8 @@ bool parse(const vector<string> &args, Parsed &out) {
             out.options.bios = true;
         else if (arg == "--samples")
             out.options.samples = true;
+        else if (arg == "--remove-retroboot")
+            out.options.removeRetroBoot = true;
         else if (arg == "--drive" && value(out.options.root)) {
         } else if (arg == "--covers" && value(out.covers)) {
         } else if (arg == "--package" && value(out.options.packageFile)) {

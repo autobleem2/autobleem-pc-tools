@@ -12,6 +12,8 @@
 //       --channel defaults to the installer's own kind of build; --package installs a local file instead
 //       --covers names the cover databases to fetch (J, U, P - the default is all three; "" for none)
 //       --bios needs --retroarch (the packs go into RetroArch's system folder); alone it warns and does nothing
+//       --remove-retroboot deletes RetroBoot's leftovers (RetroArch/bin/retroboot, the emptied bin/apps) after the
+//       install; never asked on the console, off unless given
 //
 // On Windows a plain Win32 window (win32_window.cpp), statically linked: one file, nothing to install.
 // Elsewhere (a Linux or macOS build) there is the --quiet path only, and a download command instead of
@@ -66,7 +68,8 @@ public:
 #endif
 
 int usage() {
-    cout << "USAGE: AutoBleemInstaller [--quiet --drive F: [--covers JUP] [--retroarch] [--bios] [--samples]]\n"
+    cout << "USAGE: AutoBleemInstaller [--quiet --drive F: [--covers JUP] [--retroarch] [--bios] [--samples]\n"
+            "                          [--remove-retroboot]]\n"
             "                          [--channel release|testing|nightly|preview] [--package FILE] [--repo URL]"
          << endl;
     return EXIT_FAILURE;

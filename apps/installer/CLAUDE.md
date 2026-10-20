@@ -84,6 +84,13 @@ README only (autobleem-appliance's `assemble-psc.sh`).
   Close / Back). A format or an install runs on a `std::thread` into a mutex-guarded `State`, a 100 ms
   timer moves it into the controls; a finished format returns to the questions with the drives re-read.
 
+**RetroBoot's leftovers** (`InstallOptions::removeRetroBoot`, the core deletes `RetroArch/bin/retroboot` and the
+emptied `RetroArch/bin/apps` after the update, and keeps a tree something still uses): the window asks only when
+`apps/common/retroboot_offer.*` finds the tree (`RetroArch/bin/retroboot`, or `retroarch/retroboot` on a stick of the
+old layout; a link or a bare `bin/apps` is no reason), as the last checkbox, unticked, with its size worked out from
+the files and a confirmation (default No) before the run; a drive change or Refresh clears the tick. The console has
+only `--remove-retroboot` (never a prompt, off unless given).
+
 **The shared look - `apps/common/ui_theme.*`** (static lib `ui_theme`, Windows only; design:
 autobleem-design `themes/ab2.0.0/design/pcinstall/README.md`): palette constants, `loadFonts()` (Red Hat
 Text Medium + SemiBold from RCDATA `UI_RES_FONT_MEDIUM`/`_SEMIBOLD`, ids in `ui_theme_ids.h`, Segoe UI
