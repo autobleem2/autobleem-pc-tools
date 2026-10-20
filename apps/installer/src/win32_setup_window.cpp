@@ -190,12 +190,15 @@ void describeFolder(Window &w) {
                 " installed.";
     SetWindowTextW(w.status, wide(text).c_str());
     layout(w); // the window grows with the status text
-    // the PlayStation BIOS is wanted with or without RetroArch; the pack's size follows the choice
+    // the BIOS pack comes only with RetroArch; without it the shipped OpenBIOS is installed
     const bool withRetroArch = checked(w.retroarch) || w.info.hasRetroArch;
     SetWindowTextW(w.bios,
                    withRetroArch
-                       ? L"Download the BIOS files (PlayStation, and every core's - about 300 MB, from RetroBIOS)"
-                       : L"Download the PlayStation BIOS files (about 1 MB, from RetroBIOS)");
+                       ? L"Download the BIOS files the cores need (about 300 MB, from RetroBIOS)"
+                       : L"BIOS pack: only with RetroArch. Without it the shipped OpenBIOS is installed.");
+    EnableWindow(w.bios, withRetroArch);
+    if (!withRetroArch)
+        setChecked(w.bios, false);
     EnableWindow(w.install, w.info.exists);
 }
 
@@ -376,7 +379,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         w->retroarch =
             make(*w, L"BUTTON", L"Install RetroArch (emulators for the other systems, with every core - about 1.5 GB)",
                  WS_TABSTOP | BS_AUTOCHECKBOX, IdRetroArch);
-        w->bios = make(*w, L"BUTTON", L"Download the PlayStation BIOS files (about 1 MB, from RetroBIOS)",
+        w->bios = make(*w, L"BUTTON", L"Download the BIOS files the cores need (about 300 MB, from RetroBIOS)",
                        WS_TABSTOP | BS_AUTOCHECKBOX, IdBios);
         w->samples = make(*w, L"BUTTON", L"Add the sample games (free homebrew, so the shelf is not empty)",
                           WS_TABSTOP | BS_AUTOCHECKBOX, IdSamples);
