@@ -336,6 +336,7 @@ TEST_CASE("runOnConsole: --quiet prints the summary once and no INFO line, a nor
 
     CHECK(quiet.summary == "1 games in 1 systems, 0 named by the databases, 1 playlists written, 0 folders unchanged");
     CHECK(countOf(quietOut, quiet.summary) == 1);
+    CAPTURE(quietOut);
     CHECK(countOf(quietOut, "INFO") == 0);
     CHECK(countOf(quietOut, "an info line") == 0);
     CHECK(countOf(quietOut, "Stick at") == 0);
