@@ -205,7 +205,11 @@ UpdateRomsJob::Report UpdateRomsJob::runOnConsole(const Setup &setup, bool quiet
                                                   OnlineAssets::CommandRunner runner) {
     // no sink: run() logs every line (INFO), which is what reaches the console - once - unless quiet
     Report report = run(setup, quiet ? nullptr : listener, nullptr, LineSink(), std::move(runner));
-    if (quiet && !report.summary.empty())
+    if (quiet && !report.summary.empty()) {
         out << report.summary << endl;
+        // warnings for a script: its INFO line is hidden, so the folders left out are named here
+        for (const string &folder : report.unknownFolders)
+            out << "WARNING: No core plays " << folder << " - skipped" << endl;
+    }
     return report;
 }

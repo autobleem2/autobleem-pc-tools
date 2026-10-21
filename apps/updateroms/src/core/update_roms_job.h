@@ -62,7 +62,7 @@ public:
 
     // run() for a console: every line of the job reaches the console once, through the log (INFO) - or,
     // `quiet`, only warnings and errors do (the log's console appender, ConsoleLog) and `out` gets Report::
-    // summary, once; the scanner's progress goes to `listener` unless quiet. The log file has all lines.
+    // summary, once, then a "WARNING: No core plays <folder> - skipped" line per unknown folder; the scanner's progress goes to `listener` unless quiet. The log file has all lines.
     static Report runOnConsole(const Setup &setup, bool quiet, std::ostream &out,
                                ableem::ScanProgressListener *listener,
                                OnlineAssets::CommandRunner runner = OnlineAssets::CommandRunner());

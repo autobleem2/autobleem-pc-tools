@@ -17,7 +17,9 @@ in the RetroArch set, named, with covers. Run it again after copying more ROMs i
 new and fetches what is missing.
 
   UpdateRoms.exe E:\           the stick at E: (when run from elsewhere)
-  UpdateRoms.exe E:\ --quiet   no window, the log on the console - for scripts
+  UpdateRoms.exe E:\ --quiet   no window, for scripts: one summary line, then a
+                               WARNING line per folder no core plays, plus any
+                               warning or error; the full log is in System/Logs
   UpdateRoms.exe E:\ --target rpi   a Raspberry Pi card whose kind it could not tell
 
 It never touches your PlayStation games, their database or the themes. A playlist RetroArch itself wrote

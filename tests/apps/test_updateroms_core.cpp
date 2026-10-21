@@ -412,3 +412,57 @@ TEST_CASE("run: two folders feeding one playlist both stay 'unchanged' on the ne
     CHECK(fourth.systemsSkipped == 2);
     CHECK(fourth.playlistsWritten.empty());
 }
+
+TEST_CASE("run: three alias folders feeding one playlist (Amiga / CD32 / CDTV style), with a database, settle at once") {
+    // the folders sort before, between and after the system's own name; one of them has a game the database
+    // names (so the playlist's size moves again when it is renamed) and one has a subfolder
+    FakeStick stick;
+    stick.addDatabase();
+    stick.tmp.writeFile("Autobleem/bin/autobleem/platform/roms_folders.cfg",
+                        string("AAA=") + NES + "\nZZZ=" + NES + "\nNES CD=" + NES + "\n");
+    for (const char *alias : {"AAA", "ZZZ", "NES CD"})
+        stick.tmp.makeSubDir(string("RetroArch/roms/") + alias);
+    stick.addRom("lolo.nes");
+    stick.tmp.writeFile("RetroArch/roms/AAA/a game.nes", "aaa rom bytes");
+    stick.tmp.writeFile("RetroArch/roms/ZZZ/z game.nes", "zzz rom bytes");
+    stick.tmp.writeFile("RetroArch/roms/NES CD/cd game.nes", "cd rom bytes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+
+    UpdateRomsJob::Report first = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(first.systems == 4);
+    CHECK(first.games == 4);
+    CHECK(stick.playlist().size() == 4);
+    for (int again = 0; again < 3; again++) {
+        UpdateRomsJob::Report next = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+        CAPTURE(again);
+        CHECK(next.systemsSkipped == 4);
+        CHECK(next.playlistsWritten.empty());
+        CHECK(next.games == 4);
+    }
+}
+
+TEST_CASE("runOnConsole: --quiet still tells a script about a folder no core plays, after the summary") {
+    FakeStick stick;
+    stick.tmp.makeSubDir("RetroArch/roms/Mystery System");
+    stick.tmp.writeFile("RetroArch/roms/Mystery System/x.bin", "x");
+    stick.addRom("lolo.nes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+
+    std::ostringstream captured;
+    UpdateRomsJob::Report quiet = UpdateRomsJob::runOnConsole(setup, true, captured, nullptr, FakeServer().runner());
+    const string out = captured.str();
+    CAPTURE(out);
+    REQUIRE(quiet.unknownFolders.size() == 1);
+    const string warning = "WARNING: No core plays Mystery System - skipped";
+    CHECK(countOf(out, warning) == 1);
+    CHECK(out.find(quiet.summary) < out.find(warning));
+
+    // a normal run says it once, as its INFO line, and has no second copy
+    captured.str("");
+    UpdateRomsJob::runOnConsole(setup, false, captured, nullptr, FakeServer().runner());
+    CHECK(countOf(captured.str(), "WARNING: No core plays") == 0);
+}
