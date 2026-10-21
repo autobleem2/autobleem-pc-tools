@@ -9,6 +9,7 @@
 #include <ableem/engine/game_scanner.h>
 
 #include <functional>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,7 @@ public:
         std::vector<std::string> unknownFolders;
         int boxArtFetched = 0, boxArtMissing = 0;
         std::vector<std::string> lines; // the log the window shows, one per system and per pass
+        std::string summary;            // the one line with the games / systems / playlists counts
     };
 
     // false with `error` set when `root` is not an AutoBleem stick (no Autobleem/bin/autobleem) or has no
@@ -57,6 +59,13 @@ public:
     static std::string rootFromProgramPath(const std::string &programPath);
 
     using LineSink = std::function<void(const std::string &)>;
+
+    // run() for a console: every line of the job reaches the console once, through the log (INFO) - or,
+    // `quiet`, only warnings and errors do (the log's console appender, ConsoleLog) and `out` gets Report::
+    // summary, once; the scanner's progress goes to `listener` unless quiet. The log file has all lines.
+    static Report runOnConsole(const Setup &setup, bool quiet, std::ostream &out,
+                               ableem::ScanProgressListener *listener,
+                               OnlineAssets::CommandRunner runner = OnlineAssets::CommandRunner());
 
     // the whole run; progress through the listener (the scanner's stages, FetchingBoxArt), shouldStop()
     // polled between the passes and per box art, each report line handed to `say` as it happens (they
