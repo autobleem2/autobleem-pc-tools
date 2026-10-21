@@ -311,6 +311,7 @@ TEST_CASE("runOnConsole: --quiet prints the summary once and no INFO line, a nor
     static bool logAdded = false;
     std::ostringstream captured;
     consoleLog.redirect(&captured);
+    consoleLog.setQuiet(true); // detect() logs too
     if (!logAdded) {
         REQUIRE(plog::get() != nullptr);
         plog::get()->addAppender(&consoleLog);
@@ -322,7 +323,6 @@ TEST_CASE("runOnConsole: --quiet prints the summary once and no INFO line, a nor
     string error;
     REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
 
-    consoleLog.setQuiet(true);
     UpdateRomsJob::Report quiet = UpdateRomsJob::runOnConsole(setup, true, captured, nullptr, FakeServer().runner());
     PLOG_WARNING << "a warning still shows";
     PLOG_INFO << "an info line does not";
