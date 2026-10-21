@@ -14,14 +14,20 @@ public:
     explicit ConsoleLog(bool quiet = false) : quiet_(quiet) {}
 
     void setQuiet(bool quiet) { quiet_ = quiet; }
+    // the lines go to `out` instead of the console (the tests'); nullptr: the console again
+    void redirect(std::ostream *out) { redirect_ = out; }
 
     void write(const plog::Record &record) override {
         // plog's severities count up from fatal: anything above warning is INFO or DEBUG
         if (quiet_ && record.getSeverity() > plog::warning)
             return;
-        plog::ConsoleAppender<ableem::Log::Formatter>::write(record);
+        if (redirect_)
+            *redirect_ << ableem::Log::Formatter::format(record);
+        else
+            plog::ConsoleAppender<ableem::Log::Formatter>::write(record);
     }
 
 private:
     bool quiet_;
+    std::ostream *redirect_ = nullptr;
 };

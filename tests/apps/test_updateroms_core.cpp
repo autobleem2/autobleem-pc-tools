@@ -306,12 +306,15 @@ int countOf(const string &text, const string &what) {
 } // namespace
 
 TEST_CASE("runOnConsole: --quiet prints the summary once and no INFO line, a normal run prints each line once") {
-    // the one logger of the process: ConsoleLog onto std::cout, which this test points at a buffer
+    // the harness already logs to the console; ConsoleLog is added beside it, writing to a buffer
     static ConsoleLog consoleLog;
-    static bool logInitialised = false;
-    if (!logInitialised) {
-        plog::init(plog::debug, &consoleLog);
-        logInitialised = true;
+    static bool logAdded = false;
+    std::ostringstream captured;
+    consoleLog.redirect(&captured);
+    if (!logAdded) {
+        REQUIRE(plog::get() != nullptr);
+        plog::get()->addAppender(&consoleLog);
+        logAdded = true;
     }
     FakeStick stick;
     stick.addRom("lolo.nes");
@@ -319,20 +322,17 @@ TEST_CASE("runOnConsole: --quiet prints the summary once and no INFO line, a nor
     string error;
     REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
 
-    std::ostringstream captured;
-    std::streambuf *original = std::cout.rdbuf(captured.rdbuf());
-
     consoleLog.setQuiet(true);
-    UpdateRomsJob::Report quiet = UpdateRomsJob::runOnConsole(setup, true, std::cout, nullptr, FakeServer().runner());
+    UpdateRomsJob::Report quiet = UpdateRomsJob::runOnConsole(setup, true, captured, nullptr, FakeServer().runner());
     PLOG_WARNING << "a warning still shows";
     PLOG_INFO << "an info line does not";
     const string quietOut = captured.str();
 
     captured.str("");
     consoleLog.setQuiet(false);
-    UpdateRomsJob::Report loud = UpdateRomsJob::runOnConsole(setup, false, std::cout, nullptr, FakeServer().runner());
+    UpdateRomsJob::Report loud = UpdateRomsJob::runOnConsole(setup, false, captured, nullptr, FakeServer().runner());
     const string loudOut = captured.str();
-    std::cout.rdbuf(original);
+    consoleLog.redirect(nullptr);
 
     CHECK(quiet.summary == "1 games in 1 systems, 0 named by the databases, 1 playlists written, 0 folders unchanged");
     CHECK(countOf(quietOut, quiet.summary) == 1);
