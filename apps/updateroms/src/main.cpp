@@ -7,12 +7,13 @@
 //
 //   UpdateRoms.exe                  the stick it sits on (the first parent folder with Autobleem/bin/autobleem)
 //   UpdateRoms.exe E:\              that stick
-//   UpdateRoms.exe E:\ --quiet      no window: the same lines on the console it was started from, for scripts
+//   UpdateRoms.exe E:\ --quiet      no window: the summary line, warnings and errors on the console it was started from, for scripts
 //   UpdateRoms.exe E:\ --target rpi  a Pi card whose kind could not be told (see UpdateRomsJob::detect)
 //
 // On Windows a plain Win32 window (win32_window.cpp), statically linked: one file, nothing to install.
 // Elsewhere (a Linux or macOS build) there is the --quiet path only.
 //
+#include "core/console_log.h"
 #include "core/main.h"
 #include "core/services/environment.h"
 #include "core/update_roms_job.h"
@@ -33,7 +34,7 @@ namespace {
 //*******************************
 // QuietListener
 //*******************************
-// --quiet: the scanner's progress on stdout, one line per folder and per cover
+// the scanner's progress on stdout, one line per folder and per cover (not under --quiet)
 class QuietListener : public ableem::ScanProgressListener {
 public:
     void onScanProgress(ableem::ScanStage stage, const string &detail, int done, int total) override {
@@ -80,7 +81,10 @@ static int runUpdateRoms(int argc, char *argv[]) {
 #endif
     cout.setf(ios::unitbuf);
     cerr.setf(ios::unitbuf);
-    ableem::Log::initConsoleOnly();
+    // quiet: warnings and errors only on the console; the log file below keeps everything
+    static ConsoleLog consoleLog;
+    consoleLog.setQuiet(quiet);
+    plog::init(ABLEEM_LOG_LEVEL, &consoleLog);
 
     if (!target.empty() && target != "psc" && target != "rpi")
         return fail("--target is psc or rpi", quiet);
@@ -104,15 +108,14 @@ static int runUpdateRoms(int argc, char *argv[]) {
     DirEntry::createDir(Env::getPathToLogsDir());
     ableem::Log::addFile(Env::getPathToLogsDir() + sep + "updateroms.log");
     PLOG_INFO << "UpdateRoms " << Env::productVersion() << " (" << Version::FULL_VERSION << ")" << ", built " << Version::BUILD_TIMESTAMP << " UTC, stick "
-              << setup.root << " for " << setup.target;
+              << setup.root << ", layout " << setup.target;
 
 #ifdef _WIN32
     if (!quiet)
         return runUpdateRomsWindow(setup, "");
 #endif
     QuietListener listener;
-    UpdateRomsJob::Report report =
-        UpdateRomsJob::run(setup, &listener, nullptr, [](const string &line) { cout << line << endl; });
+    UpdateRomsJob::Report report = UpdateRomsJob::runOnConsole(setup, quiet, cout, &listener);
     return report.systems > 0 || report.games == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 

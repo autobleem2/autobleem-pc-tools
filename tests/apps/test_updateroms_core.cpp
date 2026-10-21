@@ -9,6 +9,7 @@
 #include "support/string_maker.h"
 #include "support/temp_dir.h"
 
+#include "core/console_log.h"
 #include "core/update_roms_job.h"
 
 #include <ableem/engine/filesystem.h>
@@ -16,7 +17,9 @@
 #include <ableem/engine/zip_writer.h>
 
 #include <fstream>
+#include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -174,7 +177,11 @@ TEST_CASE("run: the playlists name the target's paths - ROMs and cores - and the
     CHECK(report.playlistsWritten == vector<string>{string(NES) + ".lpl"});
     CHECK(report.boxArtFetched == 0);
     CHECK(said.size() == report.lines.size());
-    CHECK(said[0].find("PlayStation Classic") != string::npos);
+    // no device named: detect() cannot tell a PC stick from a Pi card
+    CHECK(said[0].find("Stick at ") == 0);
+    CHECK(said[0].find("Raspberry Pi") == string::npos);
+    CHECK(said[0].find("PlayStation Classic") == string::npos);
+    CHECK(said[0].find("playlists will say /media)") != string::npos);
 
     ableem::RetroArchPlaylistEntries entries = stick.playlist();
     REQUIRE(entries.size() == 1);
@@ -286,4 +293,176 @@ TEST_CASE("run: an entry a scan on this PC wrote with this PC's path is made to 
     REQUIRE(entries.size() == 1);
     CHECK(entries[0].path == string("/media/RetroArch/roms/") + NES + "/lolo.nes");
     CHECK(entries[0].label == "lolo"); // kept: no database to say better
+}
+
+namespace {
+// the occurrences of `what` in `text`
+int countOf(const string &text, const string &what) {
+    int n = 0;
+    for (size_t at = text.find(what); at != string::npos; at = text.find(what, at + what.size()))
+        n++;
+    return n;
+}
+} // namespace
+
+TEST_CASE("runOnConsole: --quiet prints the summary once and no INFO line, a normal run prints each line once") {
+    // the harness already logs to the console; ConsoleLog is added beside it, writing to a buffer
+    static ConsoleLog consoleLog;
+    static bool logAdded = false;
+    std::ostringstream captured;
+    consoleLog.redirect(&captured);
+    consoleLog.setQuiet(true); // detect() logs too
+    if (!logAdded) {
+        REQUIRE(plog::get() != nullptr);
+        plog::get()->addAppender(&consoleLog);
+        logAdded = true;
+    }
+    FakeStick stick;
+    stick.addRom("lolo.nes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+
+    UpdateRomsJob::Report quiet = UpdateRomsJob::runOnConsole(setup, true, captured, nullptr, FakeServer().runner());
+    PLOG_WARNING << "a warning still shows";
+    PLOG_INFO << "an info line does not";
+    const string quietOut = captured.str();
+
+    captured.str("");
+    consoleLog.setQuiet(false);
+    UpdateRomsJob::Report loud = UpdateRomsJob::runOnConsole(setup, false, captured, nullptr, FakeServer().runner());
+    const string loudOut = captured.str();
+    consoleLog.redirect(nullptr);
+
+    CHECK(quiet.summary == "1 games in 1 systems, 0 named by the databases, 1 playlists written, 0 folders unchanged");
+    CHECK(countOf(quietOut, quiet.summary) == 1);
+    CAPTURE(quietOut);
+    CHECK(countOf(quietOut, "INFO") == 0);
+    CHECK(countOf(quietOut, "an info line") == 0);
+    CHECK(countOf(quietOut, "Stick at") == 0);
+    CHECK(countOf(quietOut, "a warning still shows") == 1);
+
+    // normal: every line of the job once (the log is the console), the summary among them
+    CHECK(loud.summary == "1 games in 1 systems, 0 named by the databases, 0 playlists written, 1 folders unchanged");
+    CHECK(countOf(loudOut, loud.summary) == 1);
+    CHECK(countOf(loudOut, "Stick at ") == 1);
+    for (const string &line : loud.lines)
+        CHECK(countOf(loudOut, line) == 1);
+}
+
+TEST_CASE("run: a playlist follows its folder - a file added is in it, the file removed again is not") {
+    FakeStick stick;
+    stick.addRom("lolo.nes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+    UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    REQUIRE(stick.playlist().size() == 1);
+
+    stick.addRom("probe.nes", "0123456789abcdefg"); // 17 bytes
+    UpdateRomsJob::Report added = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(added.playlistsWritten.size() == 1);
+    CHECK(stick.playlist().size() == 2);
+
+    REQUIRE(DirEntry::removeFile(stick.tmp.at(stick.roms + "/" + NES + "/probe.nes")));
+    UpdateRomsJob::Report removed = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(removed.systemsSkipped == 0);
+    CHECK(removed.playlistsWritten.size() == 1);
+    ableem::RetroArchPlaylistEntries entries = stick.playlist();
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].path == string("/media/RetroArch/roms/") + NES + "/lolo.nes");
+
+    // and the run after that has nothing to do
+    UpdateRomsJob::Report again = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(again.systemsSkipped == 1);
+    CHECK(again.playlistsWritten.empty());
+
+    // the last file gone: the playlist goes with it
+    REQUIRE(DirEntry::removeFile(stick.tmp.at(stick.roms + "/" + NES + "/lolo.nes")));
+    UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK_FALSE(DirEntry::exists(stick.tmp.at(stick.ra + "/playlists/" + NES + ".lpl")));
+}
+
+TEST_CASE("run: two folders feeding one playlist both stay 'unchanged' on the next run") {
+    // "NES" is an alias of the NES system: its folder and the full-name one write the same .lpl, the
+    // first-scanned folder's digest was taken before the second one changed the playlist's size
+    FakeStick stick;
+    stick.tmp.writeFile("Autobleem/bin/autobleem/platform/roms_folders.cfg", string("NES=") + NES + "\n");
+    stick.tmp.makeSubDir("RetroArch/roms/NES");
+    stick.tmp.writeFile("RetroArch/roms/NES/other.nes", "other rom bytes");
+    stick.addRom("lolo.nes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+
+    UpdateRomsJob::Report first = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(first.systemsSkipped == 0);
+    CHECK(stick.playlist().size() == 2);
+
+    UpdateRomsJob::Report second = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(second.systemsSkipped == 2);
+    CHECK(second.playlistsWritten.empty());
+
+    // a file into one folder: the folders of that playlist are looked at, then it settles again
+    stick.tmp.writeFile("RetroArch/roms/NES/third.nes", "third rom bytes!");
+    UpdateRomsJob::Report third = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(third.playlistsWritten.size() == 1);
+    CHECK(stick.playlist().size() == 3);
+    UpdateRomsJob::Report fourth = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(fourth.systemsSkipped == 2);
+    CHECK(fourth.playlistsWritten.empty());
+}
+
+TEST_CASE("run: three alias folders feeding one playlist (Amiga / CD32 / CDTV style), with a database, settle at once") {
+    // the folders sort before, between and after the system's own name; one of them has a game the database
+    // names (so the playlist's size moves again when it is renamed) and one has a subfolder
+    FakeStick stick;
+    stick.addDatabase();
+    stick.tmp.writeFile("Autobleem/bin/autobleem/platform/roms_folders.cfg",
+                        string("AAA=") + NES + "\nZZZ=" + NES + "\nNES CD=" + NES + "\n");
+    for (const char *alias : {"AAA", "ZZZ", "NES CD"})
+        stick.tmp.makeSubDir(string("RetroArch/roms/") + alias);
+    stick.addRom("lolo.nes");
+    stick.tmp.writeFile("RetroArch/roms/AAA/a game.nes", "aaa rom bytes");
+    stick.tmp.writeFile("RetroArch/roms/ZZZ/z game.nes", "zzz rom bytes");
+    stick.tmp.writeFile("RetroArch/roms/NES CD/cd game.nes", "cd rom bytes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+
+    UpdateRomsJob::Report first = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+    CHECK(first.systems == 4);
+    CHECK(first.games == 4);
+    CHECK(stick.playlist().size() == 4);
+    for (int again = 0; again < 3; again++) {
+        UpdateRomsJob::Report next = UpdateRomsJob::run(setup, nullptr, nullptr, nullptr, FakeServer().runner());
+        CAPTURE(again);
+        CHECK(next.systemsSkipped == 4);
+        CHECK(next.playlistsWritten.empty());
+        CHECK(next.games == 4);
+    }
+}
+
+TEST_CASE("runOnConsole: --quiet still tells a script about a folder no core plays, after the summary") {
+    FakeStick stick;
+    stick.tmp.makeSubDir("RetroArch/roms/Mystery System");
+    stick.tmp.writeFile("RetroArch/roms/Mystery System/x.bin", "x");
+    stick.addRom("lolo.nes");
+    UpdateRomsJob::Setup setup;
+    string error;
+    REQUIRE(UpdateRomsJob::detect(stick.tmp.path(), setup, error));
+
+    std::ostringstream captured;
+    UpdateRomsJob::Report quiet = UpdateRomsJob::runOnConsole(setup, true, captured, nullptr, FakeServer().runner());
+    const string out = captured.str();
+    CAPTURE(out);
+    REQUIRE(quiet.unknownFolders.size() == 1);
+    const string warning = "WARNING: No core plays Mystery System - skipped";
+    CHECK(countOf(out, warning) == 1);
+    CHECK(out.find(quiet.summary) < out.find(warning));
+
+    // a normal run says it once, as its INFO line, and has no second copy
+    captured.str("");
+    UpdateRomsJob::runOnConsole(setup, false, captured, nullptr, FakeServer().runner());
+    CHECK(countOf(captured.str(), "WARNING: No core plays") == 0);
 }

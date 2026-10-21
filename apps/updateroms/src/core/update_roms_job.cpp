@@ -124,8 +124,9 @@ UpdateRomsJob::Report UpdateRomsJob::run(const Setup &setup, ableem::ScanProgres
         if (sink)
             sink(line);
     };
-    say("Stick at " + setup.root + " for the " + (setup.target == "rpi" ? "Raspberry Pi" : "PlayStation Classic") +
-        " (playlists will say " + setup.targetRoot + ")");
+    // neutral: detect() cannot tell a PC stick from a Pi card (both have RetroArch/retroarch.cfg), so the
+    // wording names no device; the layout is the platform ini the playlists' paths come from
+    say("Stick at " + setup.root + " (layout " + setup.target + ", playlists will say " + setup.targetRoot + ")");
 
     OnlineAssets::Config onlineConfig;
     onlineConfig.downloadCommand = setup.downloadCommand;
@@ -177,9 +178,11 @@ UpdateRomsJob::Report UpdateRomsJob::run(const Setup &setup, ableem::ScanProgres
     report.identified = result.gamesIdentified;
     report.playlistsWritten = result.playlistsWritten;
     report.unknownFolders = result.unknownFolders;
-    say(to_string(result.gamesFound) + " games in " + to_string(result.systemsScanned) + " systems, " +
-        to_string(result.gamesIdentified) + " named by the databases, " + to_string(result.playlistsWritten.size()) +
-        " playlists written, " + to_string(result.systemsSkipped) + " folders unchanged");
+    report.summary = to_string(result.gamesFound) + " games in " + to_string(result.systemsScanned) + " systems, " +
+                     to_string(result.gamesIdentified) + " named by the databases, " +
+                     to_string(result.playlistsWritten.size()) + " playlists written, " +
+                     to_string(result.systemsSkipped) + " folders unchanged";
+    say(report.summary);
     for (const string &folder : result.unknownFolders)
         say("No core plays " + folder + " - skipped");
     if (shouldStop && shouldStop())
@@ -190,6 +193,23 @@ UpdateRomsJob::Report UpdateRomsJob::run(const Setup &setup, ableem::ScanProgres
             online.fetchMissingBoxArt(result.games, setup.thumbnailsDir, listener, shouldStop, &report.boxArtMissing);
         say(to_string(report.boxArtFetched) + " covers fetched, " + to_string(report.boxArtMissing) +
             " not on the server");
+    }
+    return report;
+}
+
+//*******************************
+// UpdateRomsJob::runOnConsole
+//*******************************
+UpdateRomsJob::Report UpdateRomsJob::runOnConsole(const Setup &setup, bool quiet, ostream &out,
+                                                  ableem::ScanProgressListener *listener,
+                                                  OnlineAssets::CommandRunner runner) {
+    // no sink: run() logs every line (INFO), which is what reaches the console - once - unless quiet
+    Report report = run(setup, quiet ? nullptr : listener, nullptr, LineSink(), std::move(runner));
+    if (quiet && !report.summary.empty()) {
+        out << report.summary << endl;
+        // warnings for a script: its INFO line is hidden, so the folders left out are named here
+        for (const string &folder : report.unknownFolders)
+            out << "WARNING: No core plays " << folder << " - skipped" << endl;
     }
     return report;
 }

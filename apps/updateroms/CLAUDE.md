@@ -33,6 +33,9 @@ had been 28 MB plus 50 MB of DLLs.
   system's message font; a manifest (`updateroms.rc`) for common controls v6 and DPI awareness. A
   `-mwindows` GUI-subsystem exe, so no console pops up when double-clicked; `--quiet` attaches to the
   parent console (`AttachConsole`) unless stdout is already redirected, which a script's pipe or file is.
+  Quiet prints the summary line once, then a `WARNING: No core plays <folder> - skipped` line per unknown
+  folder (`runOnConsole`), plus the log's warnings and errors (`ConsoleLog`) - not the other INFO lines
+  (the log file keeps all).
   `-static -static-libgcc -static-libstdc++`: `ldd` shows only Windows' own DLLs. Off Windows there is
   the `--quiet` path only (the window is `#ifdef _WIN32`).
 

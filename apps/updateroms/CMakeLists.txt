@@ -5,6 +5,7 @@
 # elsewhere. Built for the dev hosts only: it is what runs on the PC the stick is plugged into.
 
 add_library(updateroms_core STATIC
+        src/core/console_log.h
         src/core/update_roms_job.cpp
         src/core/update_roms_job.h
 )
