@@ -27,6 +27,7 @@ import re
 import sys
 import tarfile
 import tempfile
+import time
 import unicodedata
 
 TOOL_NAME = "make_stick_image"
@@ -86,13 +87,40 @@ MEDIA_EXTENSIONS = {
 ARCHIVE_EXTENSIONS = {".zip", ".7z", ".rar"}
 # dotfiles and key-file names are never media, whatever the extension
 MEDIA_NEVER = re.compile(r"^(\.|id_(rsa|dsa|ecdsa|ed25519))", re.I)
-# the secret markers of contractorfiles' media_ok (the same set): a media-named credential file passes only without them
+# Secret markers: a media-named credential file passes only without them. The tree is untrusted input, so every repeat
+# is bounded (no backtracking blow-up) and the longest possible match is known: the scan overlap is derived from it.
+_TOKEN = 255      # tail of a vendor token
+_JWT = 2048       # one JWT segment
+_WS = 64          # blanks around = or :
+_VALUE = 256      # a value
+_NAME = 64        # a KEY of a .env line
+_EOL = rb"(?:\r\n|\r|\n)"
+_KEYVAL = rb"[A-Z][A-Z0-9_]{2,%d}=" % _NAME
 SECRET_MARKER = re.compile(
-    rb"-----BEGIN |AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|xox[abp]-[A-Za-z0-9-]{10,}"
-    rb"|sk-ant-[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*"
-    rb"|(?i:passw(?:or)?d|token|secret|api[_-]?key)[ \t]*=[ \t]*[^\s]"
-    rb"|[A-Z][A-Z0-9_]{2,}=\S+\r?\n[A-Z][A-Z0-9_]{2,}=\S")  # two KEY=VALUE lines in a row (.env)
-MARKER_OVERLAP = 1024
+    rb"(?i:-----BEGIN)"                                                      # PEM, any case, with or without a space
+    rb"|LS0tLS1CRUdJT|0tLS0tQkVHSU4|tLS0tLUJFR0lO"                           # the same, base64 (3 alignments)
+    rb"|(?:AKIA|ASIA)[0-9A-Z]{16}"
+    rb"|gh[pousr]_[A-Za-z0-9]{36}"
+    rb"|github_pat_[A-Za-z0-9_]{22,%(t)d}"
+    rb"|glpat-[A-Za-z0-9_-]{20,%(t)d}"
+    rb"|xox[abprs]-[A-Za-z0-9-]{10,%(t)d}"
+    rb"|sk-(?:ant|proj|live)-[A-Za-z0-9_-]{10,%(t)d}"
+    rb"|(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,%(j)d}\.eyJ[A-Za-z0-9_-]{5,%(j)d}\."             # JWT
+    rb"|ssh-(?:rsa|ed25519|dss) |ecdsa-sha2-"                                # public/authorized keys
+    rb"|(?i:authorization:[ \t]{0,%(w)d}bearer[ \t]{1,%(w)d}\S)"
+    rb"|(?i:aws_secret_access_key|passw(?:or)?d|secret|token|api[_-]?key)"   # key = value, key: value, "key": "value"
+    rb"[\"']?[ \t]{0,%(w)d}[=:][ \t]{0,%(w)d}[\"']?[^\s\"']"
+    rb"|(?<![\x20-\x7e])" % {b"t": _TOKEN, b"j": _JWT, b"w": _WS} + _KEYVAL        # two KEY=VALUE lines <= 2 line ends apart
+    + rb"[^\r\n]{1,%d}" % _VALUE + rb"(?:\r\n|\r|\n){1,2}" + _KEYVAL + rb"\S")
+# the longest a match can be (+1), from the limits above
+MARKER_OVERLAP = 1 + max(
+    3 + _JWT + 1 + 3 + _JWT + 1,                                  # JWT
+    len("aws_secret_access_key") + 1 + _WS + 1 + _WS + 1 + 1,     # key = value
+    len("authorization:") + _WS + len("bearer") + _WS + 1,
+    (1 + _NAME + 1 + _VALUE + 2 + 1 + _NAME + 1 + 1),            # .env pair
+    len("github_pat_") + _TOKEN)
+SCAN_CHUNK = 1 << 16        # small, so one regex call is short and the time budget is checked often
+SCAN_BUDGET = 20.0          # seconds per file; past it the file is reported 'unscanned-timeout' and not copied
 
 WINDOWS_RESERVED = {"con", "prn", "aux", "nul"} | {"com%d" % i for i in range(1, 10)} | {"lpt%d" % i for i in range(1, 10)}
 WINDOWS_BAD_CHARS = set('<>:"|?*\\')
@@ -143,17 +171,25 @@ def credential_rule(name):
     return None
 
 
+class ScanTimeout(Exception):
+    """The content scan of one file ran past SCAN_BUDGET."""
+
+
 def has_secret_marker(path):
-    """True when a secret marker occurs anywhere in the file (read in chunks with an overlap)."""
+    """True when a secret marker occurs anywhere in the file (read in chunks with an overlap). Raises ScanTimeout
+    when the file takes longer than SCAN_BUDGET seconds."""
     tail = b""
+    deadline = time.monotonic() + SCAN_BUDGET
     with open(path, "rb") as f:
         while True:
-            chunk = f.read(1 << 20)
+            chunk = f.read(SCAN_CHUNK)
             if not chunk:
                 return False
             buf = tail + chunk
             if SECRET_MARKER.search(buf):
                 return True
+            if time.monotonic() > deadline:
+                raise ScanTimeout(path)
             tail = buf[-MARKER_OVERLAP:]
 
 
@@ -167,7 +203,11 @@ def credential_verdict(name, path):
     ext = os.path.splitext(name.lower())[1]
     if ext not in MEDIA_EXTENSIONS or MEDIA_NEVER.search(name):
         return "skip", pattern
-    if has_secret_marker(path):
+    try:
+        marked = has_secret_marker(path)
+    except ScanTimeout:
+        return "skip-timeout", pattern
+    if marked:
         return "skip", pattern + " (secret marker in the content)"
     return ("copy-unscanned" if ext in ARCHIVE_EXTENSIONS else "copy"), pattern
 
@@ -228,6 +268,7 @@ class Plan:
         self.credentials = []  # dicts
         self.skipped = []     # dicts
         self.unscanned = []   # credential-named archives, copied, content not scannable
+        self.timeouts = []    # credential-named media files whose scan ran out of time: not copied
 
 
 def scan(tree, include_owner):
@@ -292,6 +333,9 @@ def scan(tree, include_owner):
                 if verdict and verdict[0] == "skip":
                     plan.credentials.append({"path": shown(rel), "rule": verdict[1]})
                     continue
+                if verdict and verdict[0] == "skip-timeout":
+                    plan.timeouts.append({"path": shown(rel), "rule": verdict[1]})
+                    continue
                 if verdict and verdict[0] == "copy-unscanned":
                     plan.unscanned.append({"path": shown(rel), "rule": verdict[1]})
                 plan.files.append((cparts, e.path, e.stat(follow_symlinks=False).st_size))
@@ -305,6 +349,7 @@ def scan(tree, include_owner):
     plan.credentials.sort(key=lambda x: x["path"])
     plan.skipped.sort(key=lambda x: x["path"])
     plan.unscanned.sort(key=lambda x: x["path"])
+    plan.timeouts.sort(key=lambda x: x["path"])
     return plan
 
 
@@ -404,12 +449,14 @@ def build(tree, label, out_dir, include_owner=False, force=False):
                     "credential_names_not_copied": len(plan.credentials),
                     "skipped": len(plan.skipped),
                     "unscanned_archives": len(plan.unscanned),
+                    "unscanned_timeouts": len(plan.timeouts),
                 },
                 "exclusion_rules": active_rules(include_owner),
                 "excluded": plan.excluded,
                 "credential_names_not_copied": plan.credentials,
                 "skipped": plan.skipped,
                 "unscanned-archive": plan.unscanned,
+                "unscanned-timeout": plan.timeouts,
                 "dirs": ["/".join(p) for p in plan.dirs],
                 "files": file_records,
             }
@@ -469,6 +516,8 @@ def main(argv=None):
              "INCLUDED" if m["owner_data_included"] else "left out"))
     for cred in m["credential_names_not_copied"]:
         print("credential-like name not copied: %s (%s)" % (cred["path"], cred["rule"]))
+    for u in m["unscanned-timeout"]:
+        print("unscanned-timeout, not copied: %s (%s)" % (u["path"], u["rule"]))
     for u in m["unscanned-archive"]:
         print("unscanned-archive copied: %s (%s)" % (u["path"], u["rule"]))
     for s in m["skipped"]:

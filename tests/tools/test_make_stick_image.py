@@ -242,6 +242,76 @@ class MediaExceptionTests(Base):
         _, _, man = self.build()
         self.assertEqual(man["unscanned-archive"], [])
 
+    def test_scan_timeout_reported_not_copied(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Autobleem/token_big.png", b"\0" * 300000)
+        old = msi.SCAN_BUDGET, msi.SCAN_CHUNK
+        msi.SCAN_BUDGET, msi.SCAN_CHUNK = -1.0, 4096
+        try:
+            _, _, man = self.build()
+        finally:
+            msi.SCAN_BUDGET, msi.SCAN_CHUNK = old
+        self.assertEqual(self.files(man), {"Autobleem/ok"})
+        self.assertEqual([u["path"] for u in man["unscanned-timeout"]], ["Autobleem/token_big.png"])
+        self.assertEqual(man["counts"]["unscanned_timeouts"], 1)
+
+
+MARKER_SAMPLES = [
+    b"-----BEGIN RSA PRIVATE KEY-----", b"-----BEGIN\r\n", b"-----begin openssh private key-----",
+    b"LS0tLS1CRUdJTiBSU0E", b"xx0tLS0tQkVHSU4g", b"ytLS0tLUJFR0lOIA",
+    b"AKIA" + b"A" * 16, b"ASIA" + b"B" * 16, b"ghp_" + b"a" * 36, b"github_pat_" + b"a" * 30, b"glpat-" + b"a" * 20,
+    b"xoxs-1234567890-abc", b"xoxr-1234567890-abc", b"sk-ant-abcdefghijk", b"sk-proj-abcdefghijk",
+    b"sk-live-abcdefghijk", b"eyJabcde.eyJabcde.sig", b"eyJ" + b"a" * 2048 + b".eyJ" + b"b" * 2048 + b".",
+    b"ssh-rsa AAAA", b"ssh-ed25519 AAAA", b"ecdsa-sha2-nistp256 AAAA", b"Authorization: Bearer abc",
+    b"aws_secret_access_key=abc", b"aws_secret_access_key = abc", b"password: hunter2", b'"password": "hunter2"',
+    b"secret: x", b"token: x", b"api_key: x", b"apikey=x", b"passwd = x",
+    b"FOO_KEY=1\nBAR_KEY=2", b"FOO_KEY=1\r\nBAR_KEY=2", b"FOO_KEY=1\rBAR_KEY=2", b"FOO_KEY=1\n\nBAR_KEY=2",
+    b"FOO_KEY=1\r\n\r\nBAR_KEY=2",
+    b"A" + b"B" * 64 + b"=" + b"v" * 256 + b"\n" + b"C" + b"D" * 64 + b"=v",
+    b"password" + b" " * 64 + b"=" + b" " * 64 + b"x",
+]
+
+
+class SecretMarkerTests(Base):
+    """The content scan: bounded time on hostile bytes, same verdict whole or cut at a chunk boundary."""
+
+    def scan(self, data):
+        path = os.path.join(self.tmp, "f.bin")
+        with open(path, "wb") as f:
+            f.write(data)
+        return msi.has_secret_marker(path)
+
+    def test_every_sample_matches_whole(self):
+        for s in MARKER_SAMPLES:
+            self.assertTrue(self.scan(b"\0\0" + s + b"\0\0"), s)
+
+    def test_single_key_value_and_noise_are_not_markers(self):
+        for s in (b"FOO_KEY=1\n", b"FOO_KEY=1\n\n\nBAR_KEY=2", b"hello world", bytes(range(256)) * 8, b"ssh-rsa",
+                  b"-----BEGI", b"Authorization: Basic abc"):
+            self.assertFalse(self.scan(s), s)
+
+    def test_markers_across_every_chunk_boundary(self):
+        old = msi.SCAN_CHUNK
+        msi.SCAN_CHUNK = 8192
+        self.addCleanup(setattr, msi, "SCAN_CHUNK", old)
+        for s in MARKER_SAMPLES:
+            cuts = range(1, len(s)) if len(s) < 100 else (1, 2, len(s) // 2, len(s) - 2, len(s) - 1)
+            for k in cuts:
+                data = b"\0" * (8192 - k) + s + b"\0" * 20000
+                self.assertTrue(self.scan(data), (s[:30], k))
+
+    def test_hostile_input_is_fast(self):
+        import time
+        for name, data in (("A", b"A" * (4 << 20)), ("AAA=", b"AAA=" * (1 << 20)), ("random", os.urandom(4 << 20)),
+                           ("eyJ", b"eyJ" * (1 << 20)), ("token", b"token " * 700000),
+                           ("lines", b"AAA=b\n" * 600000), ("blank", b" " * (4 << 20))):
+            t0 = time.monotonic()
+            self.scan(data)
+            self.assertLess(time.monotonic() - t0, 2.0, name)
+
+    def test_overlap_covers_the_longest_match(self):
+        self.assertGreater(msi.MARKER_OVERLAP, 2 * 2048 + 8)
+
 
 class OwnerDataTests(Base):
     def test_default_leaves_owner_data_out(self):
