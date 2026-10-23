@@ -412,6 +412,13 @@ class RefusalTests(Base):
             self.skipTest("case-insensitive file system")
         self.refuses("differ only by case")
 
+    def test_unicode_normalization_collision(self):
+        put(self.tree, "Autobleem/a", b"a")
+        put(self.tree, "Apps/café", b"1")
+        put(self.tree, "Apps/café", b"2")
+        self.assertEqual(len(os.listdir(os.path.join(self.tree, "Apps"))), 2)
+        self.refuses("Unicode normalization")
+
     def test_bad_label(self):
         self.fake_stick()
         for label in ("", "../x", "a b", ".hidden", "x" * 41, "a/b"):

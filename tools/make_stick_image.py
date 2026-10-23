@@ -27,6 +27,7 @@ import re
 import sys
 import tarfile
 import tempfile
+import unicodedata
 
 TOOL_NAME = "make_stick_image"
 TOOL_VERSION = "1.0"
@@ -268,9 +269,9 @@ def scan(tree, include_owner):
                 plan.credentials.append({"path": shown(rel) + ("/" if is_dir else ""), "rule": "credential folder name"})
                 continue
             check_relpath(cparts)
-            folded = e.name.lower()
+            folded = unicodedata.normalize("NFC", e.name).lower()
             if folded in seen:
-                raise Refused("two names differ only by case (a FAT stick cannot hold both): %s and %s"
+                raise Refused("two names differ only by case or Unicode normalization (a FAT stick cannot hold both): %s and %s"
                               % (shown(seen[folded]), shown(e.name)))
             seen[folded] = e.name
             if len(cparts) == 1 and folded == MANIFEST_NAME.lower():
