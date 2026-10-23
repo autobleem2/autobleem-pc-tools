@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """make_stick_image.py - build a "stick image" layer from a copy of an AutoBleem stick (TOOLS-6, phase 1).
 
-    make_stick_image.py TREE --label LABEL --out DIR [--include-owner-data] [--force]
+    make_stick_image.py TREE --label LABEL --out DIR [--include-owner-data] [--allow-suspicious FILE] [--force]
 
 TREE is a folder holding a copy of a stick's root (it must have Autobleem/). It is only read, never written.
 DIR gets two files:
@@ -12,6 +12,11 @@ DIR gets two files:
 The layer goes on top of the release tarball (autobleem-psc-<version>.tar.gz); see docs/proposals/stick-image.md
 for the layout and the exclusion list. Games, BIOS files and saves are left out unless --include-owner-data is
 given - such an image is the owner's own and its name ends in -owner.
+
+BEST EFFORT: the tool judges by NAME only, it does not read file contents. A file or folder whose name looks like a
+credential (see CREDENTIAL_PATTERNS, CREDENTIAL_DIR_NAMES) is not copied, whatever it holds, unless its relative path
+is listed in the owner's --allow-suspicious file. Every skipped name is listed in the manifest for the owner to review;
+the owner stays responsible for what is on the stick.
 
 stdlib only. The output is deterministic: sorted members, fixed mtime, uid/gid 0, gzip without a name or time.
 Exit code 0 = built, 2 = refused (the reason on stderr), nothing written.
@@ -27,7 +32,6 @@ import re
 import sys
 import tarfile
 import tempfile
-import time
 import unicodedata
 
 TOOL_NAME = "make_stick_image"
@@ -69,61 +73,30 @@ OWNER_DATA_PATHS = [
     "retroarch/bin/savestates",
 ]
 
-# names that look like a credential. Not copied - unless the file is a plain game/media file by its extension
+# names that look like a credential (matched on the lowercased name; files, folders and links alike). Such an entry is
+# not copied unless the owner lists its relative path in the --allow-suspicious file. Names only, never contents.
 CREDENTIAL_PATTERNS = [
     ".env", ".env.*", "*token*", "*credential*", "*secret*", "*.pem", "*.key", "*.pfx", "*.p12", "*.ppk",
     "id_rsa*", "id_ed25519*", "id_ecdsa*", "id_dsa*", ".netrc", ".git-credentials",
     "*.pem.*", "*.key.*", "*passw*", ".htpasswd", "passwd*", "shadow", "shadow-", "wpa_supplicant*", "*.kdbx", "*.kdb",
     "*.jks", "*.keystore", "keystore*", "api_key*", "apikey*", "api-key*", ".npmrc", ".pypirc", ".pgpass",
     "cookies.sqlite", "cookies*.sqlite",
+    "authorized_keys*", "known_hosts*", ".envrc", "kubeconfig*", "wallet.dat", ".bash_history", "terraform.tfstate*",
+    "*.tfvars", "*.ovpn", "*.gpg", "*.asc", "*.p8", "*.keychain", ".s3cfg", ".dockercfg", ".boto", ".my.cnf",
+    "service-account*.json", "private_key*", "privkey*",
 ]
-# folders (or files) of these names hold credentials: left out whole, at any depth, and reported
-CREDENTIAL_DIR_NAMES = {".ssh", ".git", ".aws", ".gnupg", ".config", ".kube", ".docker", "secret", "secrets"}
-MEDIA_EXTENSIONS = {
-    ".bin", ".cue", ".img", ".iso", ".chd", ".pbp", ".ecm", ".m3u", ".sbi", ".cdi", ".gdi", ".mdf", ".mds", ".ccd",
-    ".sub", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".mp3", ".ogg", ".wav", ".flac", ".mp4",
-    ".mkv", ".avi", ".zip", ".7z", ".rar", ".srm", ".state", ".mcr", ".mcd", ".ttf",
+# exact (lowercase) names of folders or files that hold credentials, at any depth
+CREDENTIAL_DIR_NAMES = {
+    ".ssh", ".git", ".aws", ".gnupg", ".config", ".kube", ".docker", "secret", "secrets",
+    "credentials", "tokens", "keys", "private", "certs", ".password-store",
 }
-ARCHIVE_EXTENSIONS = {".zip", ".7z", ".rar"}
-# dotfiles and key-file names are never media, whatever the extension
-MEDIA_NEVER = re.compile(r"^(\.|id_(rsa|dsa|ecdsa|ed25519))", re.I)
-# Secret markers: a media-named credential file passes only without them. The tree is untrusted input, so every repeat
-# is bounded (no backtracking blow-up) and the longest possible match is known: the scan overlap is derived from it.
-_TOKEN = 255      # tail of a vendor token
-_JWT = 2048       # one JWT segment
-_WS = 64          # blanks around = or :
-_VALUE = 256      # a value
-_NAME = 64        # a KEY of a .env line
-_EOL = rb"(?:\r\n|\r|\n)"
-_KEYVAL = rb"[A-Z][A-Z0-9_]{2,%d}=" % _NAME
-SECRET_MARKER = re.compile(
-    rb"(?i:-----BEGIN)"                                                      # PEM, any case, with or without a space
-    rb"|LS0tLS1CRUdJT|0tLS0tQkVHSU4|tLS0tLUJFR0lO"                           # the same, base64 (3 alignments)
-    rb"|(?:AKIA|ASIA)[0-9A-Z]{16}"
-    rb"|gh[pousr]_[A-Za-z0-9]{36}"
-    rb"|github_pat_[A-Za-z0-9_]{22,%(t)d}"
-    rb"|glpat-[A-Za-z0-9_-]{20,%(t)d}"
-    rb"|xox[abprs]-[A-Za-z0-9-]{10,%(t)d}"
-    rb"|sk-(?:ant|proj|live)-[A-Za-z0-9_-]{10,%(t)d}"
-    rb"|(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,%(j)d}\.eyJ[A-Za-z0-9_-]{5,%(j)d}\."             # JWT
-    rb"|ssh-(?:rsa|ed25519|dss) |ecdsa-sha2-"                                # public/authorized keys
-    rb"|(?i:authorization:[ \t]{0,%(w)d}bearer[ \t]{1,%(w)d}\S)"
-    rb"|(?i:aws_secret_access_key|passw(?:or)?d|secret|token|api[_-]?key)"   # key = value, key: value, "key": "value"
-    rb"[\"']?[ \t]{0,%(w)d}[=:][ \t]{0,%(w)d}[\"']?[^\s\"']"
-    rb"|(?<![\x20-\x7e])" % {b"t": _TOKEN, b"j": _JWT, b"w": _WS} + _KEYVAL        # two KEY=VALUE lines <= 2 line ends apart
-    + rb"[^\r\n]{1,%d}" % _VALUE + rb"(?:\r\n|\r|\n){1,2}" + _KEYVAL + rb"\S")
-# the longest a match can be (+1), from the limits above
-MARKER_OVERLAP = 1 + max(
-    3 + _JWT + 1 + 3 + _JWT + 1,                                  # JWT
-    len("aws_secret_access_key") + 1 + _WS + 1 + _WS + 1 + 1,     # key = value
-    len("authorization:") + _WS + len("bearer") + _WS + 1,
-    (1 + _NAME + 1 + _VALUE + 2 + 1 + _NAME + 1 + 1),            # .env pair
-    len("github_pat_") + _TOKEN)
-SCAN_CHUNK = 1 << 16        # small, so one regex call is short and the time budget is checked often
-SCAN_BUDGET = 20.0          # seconds per file; past it the file is reported 'unscanned-timeout' and not copied
-
-WINDOWS_RESERVED = {"con", "prn", "aux", "nul"} | {"com%d" % i for i in range(1, 10)} | {"lpt%d" % i for i in range(1, 10)}
+WINDOWS_RESERVED = (
+    {"con", "prn", "aux", "nul", "conin$", "conout$"}
+    | {"com%s" % d for d in "123456789¹²³"}
+    | {"lpt%s" % d for d in "123456789¹²³"}
+)
 WINDOWS_BAD_CHARS = set('<>:"|?*\\')
+MAX_ALLOW_LIST_BYTES = 1 << 20
 
 
 class Refused(Exception):
@@ -131,8 +104,17 @@ class Refused(Exception):
 
 
 def shown(text):
-    """A name for a message or the manifest: never fails on bytes that are not UTF-8."""
-    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+    """A name for a message or the manifest: never fails on bytes that are not UTF-8, and never carries a control
+    character (C0, DEL, C1, line and paragraph separators, format characters such as bidi marks) as itself."""
+    text = text.encode("utf-8", "backslashreplace").decode("utf-8")
+    out = []
+    for c in text:
+        if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp"):
+            n = ord(c)
+            out.append("\\x%02x" % n if n < 256 else "\\u%04x" % n)
+        else:
+            out.append(c)
+    return "".join(out)
 
 
 def exclusion_rule(parts, is_dir, include_owner):
@@ -163,53 +145,39 @@ def exclusion_rule(parts, is_dir, include_owner):
 
 
 def credential_rule(name):
-    """The pattern a FILE name matches as a credential name, else None (the extension does not matter here)."""
+    """The rule a file or folder NAME matches as credential-like (the pattern, or 'credential folder name'), else None.
+    Names only: the content is never read."""
     low = name.lower()
+    if low in CREDENTIAL_DIR_NAMES:
+        return "credential folder name"
     for pattern in CREDENTIAL_PATTERNS:
         if fnmatch.fnmatchcase(low, pattern):
             return pattern
     return None
 
 
-class ScanTimeout(Exception):
-    """The content scan of one file ran past SCAN_BUDGET."""
-
-
-def has_secret_marker(path):
-    """True when a secret marker occurs anywhere in the file (read in chunks with an overlap). Raises ScanTimeout
-    when the file takes longer than SCAN_BUDGET seconds."""
-    tail = b""
-    deadline = time.monotonic() + SCAN_BUDGET
-    with open(path, "rb") as f:
-        while True:
-            chunk = f.read(SCAN_CHUNK)
-            if not chunk:
-                return False
-            buf = tail + chunk
-            if SECRET_MARKER.search(buf):
-                return True
-            if time.monotonic() > deadline:
-                raise ScanTimeout(path)
-            tail = buf[-MARKER_OVERLAP:]
-
-
-def credential_verdict(name, path):
-    """None when the name is not credential-like. Else (action, pattern): "skip" (not copied), "copy" (a media/game
-    file whose whole content has no secret marker) or "copy-unscanned" (the same, but an archive: its compressed content
-    cannot be scanned, so it is copied and listed in the manifest)."""
-    pattern = credential_rule(name)
-    if not pattern:
-        return None
-    ext = os.path.splitext(name.lower())[1]
-    if ext not in MEDIA_EXTENSIONS or MEDIA_NEVER.search(name):
-        return "skip", pattern
+def read_allow_list(path):
+    """The set of relative paths (as written, '/' separated, a trailing '/' dropped) the owner lets through although
+    their names look like credentials. One per line, exact match; empty lines are ignored."""
     try:
-        marked = has_secret_marker(path)
-    except ScanTimeout:
-        return "skip-timeout", pattern
-    if marked:
-        return "skip", pattern + " (secret marker in the content)"
-    return ("copy-unscanned" if ext in ARCHIVE_EXTENSIONS else "copy"), pattern
+        with open(path, "rb") as f:
+            data = f.read(MAX_ALLOW_LIST_BYTES + 1)
+    except OSError as exc:
+        raise Refused("cannot read the allow-list %s: %s" % (shown(path), exc))
+    if len(data) > MAX_ALLOW_LIST_BYTES:
+        raise Refused("the allow-list %s is larger than %d bytes" % (shown(path), MAX_ALLOW_LIST_BYTES))
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refused("the allow-list %s is not valid UTF-8" % shown(path))
+    allowed = set()
+    for line in text.split("\n"):
+        line = line.rstrip("\r")
+        if line.endswith("/"):
+            line = line[:-1]
+        if line:
+            allowed.add(line)
+    return allowed
 
 
 def check_name(name):
@@ -224,7 +192,8 @@ def check_name(name):
         raise Refused("name has a character a Windows/FAT stick cannot hold: %s" % shown(name))
     if name != name.rstrip(" ."):
         raise Refused("name ends in a dot or a space: %s" % shown(name))
-    if name.split(".")[0].strip().lower() in WINDOWS_RESERVED:
+    stem = name.split(".")[0].strip().lower()
+    if stem in WINDOWS_RESERVED or unicodedata.normalize("NFKC", stem) in WINDOWS_RESERVED:
         raise Refused("reserved Windows name: %s" % shown(name))
 
 
@@ -265,13 +234,12 @@ class Plan:
         self.dirs = []        # tuples of parts
         self.files = []       # (parts, abspath, size)
         self.excluded = []    # dicts
-        self.credentials = []  # dicts
+        self.credentials = []  # dicts: suspicious names, not copied
+        self.allowed = []     # dicts: suspicious names the owner's allow-list let through
         self.skipped = []     # dicts
-        self.unscanned = []   # credential-named archives, copied, content not scannable
-        self.timeouts = []    # credential-named media files whose scan ran out of time: not copied
 
 
-def scan(tree, include_owner):
+def scan(tree, include_owner, allow=frozenset()):
     """Walk the stick tree (read only) into a Plan; raise Refused on anything the tool will not take."""
     if not os.path.isdir(tree):
         raise Refused("not a folder: %s" % shown(tree))
@@ -306,9 +274,13 @@ def scan(tree, include_owner):
                 plan.excluded.append({"path": shown(rel) + ("/" if is_dir else ""), "rule": rule,
                                       "files": files, "bytes": size})
                 continue
-            if e.name.lower() in CREDENTIAL_DIR_NAMES:
-                plan.credentials.append({"path": shown(rel) + ("/" if is_dir else ""), "rule": "credential folder name"})
-                continue
+            sus = credential_rule(e.name)
+            if sus:
+                record = {"path": shown(rel) + ("/" if is_dir else ""), "rule": sus}
+                if rel not in allow:
+                    plan.credentials.append(record)  # a folder is left out whole
+                    continue
+                plan.allowed.append(record)
             check_relpath(cparts)
             folded = unicodedata.normalize("NFC", e.name).lower()
             if folded in seen:
@@ -329,15 +301,6 @@ def scan(tree, include_owner):
             elif e.is_file(follow_symlinks=False):
                 if not os.access(e.path, os.R_OK):
                     raise Refused("cannot read %s: permission denied" % shown(rel))
-                verdict = credential_verdict(e.name, e.path)
-                if verdict and verdict[0] == "skip":
-                    plan.credentials.append({"path": shown(rel), "rule": verdict[1]})
-                    continue
-                if verdict and verdict[0] == "skip-timeout":
-                    plan.timeouts.append({"path": shown(rel), "rule": verdict[1]})
-                    continue
-                if verdict and verdict[0] == "copy-unscanned":
-                    plan.unscanned.append({"path": shown(rel), "rule": verdict[1]})
                 plan.files.append((cparts, e.path, e.stat(follow_symlinks=False).st_size))
             else:
                 plan.skipped.append({"path": shown(rel), "reason": "not a regular file"})
@@ -348,8 +311,7 @@ def scan(tree, include_owner):
     plan.excluded.sort(key=lambda x: x["path"])
     plan.credentials.sort(key=lambda x: x["path"])
     plan.skipped.sort(key=lambda x: x["path"])
-    plan.unscanned.sort(key=lambda x: x["path"])
-    plan.timeouts.sort(key=lambda x: x["path"])
+    plan.allowed.sort(key=lambda x: x["path"])
     return plan
 
 
@@ -378,14 +340,16 @@ def artifact_base(label, include_owner):
     return "autobleem-stick-image-%s%s" % (label, "-owner" if include_owner else "")
 
 
-def build(tree, label, out_dir, include_owner=False, force=False):
-    """Make the image. Returns (tar path, manifest path, manifest dict)."""
+def build(tree, label, out_dir, include_owner=False, force=False, allow_file=None):
+    """Make the image. Returns (tar path, manifest path, manifest dict). allow_file = the owner's list of suspicious
+    names that may be copied (see read_allow_list)."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}", label or ""):
         raise Refused("label must be 1-40 characters of A-Z a-z 0-9 . _ - and start with a letter or digit")
     if label.lower().endswith("-owner"):
         raise Refused("a label may not end in -owner: that suffix is the tool's own mark of an owner-data image")
+    allow = read_allow_list(allow_file) if allow_file else frozenset()
     try:
-        plan = scan(tree, include_owner)
+        plan = scan(tree, include_owner, allow)
     except OSError as exc:
         raise Refused("cannot read the tree: %s" % exc)
     root = os.path.realpath(tree)
@@ -405,7 +369,7 @@ def build(tree, label, out_dir, include_owner=False, force=False):
         raise Refused("--out is not a folder: %s" % shown(out_dir))
     made_out = not os.path.exists(out_dir)
     raw = mf = None
-    tmp_tar = tmp_man = None
+    tmp_tar = tmp_man = backup = None
     done = False
     entries = sorted([(p, None) for p in plan.dirs] + [(p, (a, s)) for p, a, s in plan.files], key=lambda x: x[0])
     file_records = []
@@ -448,15 +412,13 @@ def build(tree, label, out_dir, include_owner=False, force=False):
                     "excluded_files": sum(x["files"] for x in plan.excluded),
                     "credential_names_not_copied": len(plan.credentials),
                     "skipped": len(plan.skipped),
-                    "unscanned_archives": len(plan.unscanned),
-                    "unscanned_timeouts": len(plan.timeouts),
+                    "suspicious_names_allowed": len(plan.allowed),
                 },
                 "exclusion_rules": active_rules(include_owner),
                 "excluded": plan.excluded,
                 "credential_names_not_copied": plan.credentials,
                 "skipped": plan.skipped,
-                "unscanned-archive": plan.unscanned,
-                "unscanned-timeout": plan.timeouts,
+                "suspicious_names_allowed": plan.allowed,
                 "dirs": ["/".join(p) for p in plan.dirs],
                 "files": file_records,
             }
@@ -474,12 +436,30 @@ def build(tree, label, out_dir, include_owner=False, force=False):
         for name in (tar_path, man_path):  # re-checked right before the rename
             if os.path.islink(name):
                 raise Refused("%s is a symlink; the output folder is not trusted" % shown(name))
-        os.replace(tmp_tar, tar_path)  # a rename replaces the name itself, it never writes through a link
-        os.replace(tmp_man, man_path)
+        # Replace the pair as one step: the old tar is parked first, and put back if the manifest cannot be replaced.
+        # A rename replaces the name itself, it never writes through a link.
+        if os.path.lexists(tar_path):
+            bak_fd, backup = tempfile.mkstemp(prefix=base + ".", suffix=".old.part", dir=out_dir)
+            os.close(bak_fd)
+            os.replace(tar_path, backup)
+        tar_in_place = False
+        try:
+            os.replace(tmp_tar, tar_path)
+            tar_in_place = True
+            os.replace(tmp_man, man_path)
+        except OSError:
+            if backup:  # the old tar goes back over the name (and over the new tar, if it got there)
+                os.replace(backup, tar_path)
+                backup = None
+            elif tar_in_place:  # there was no old tar: leave nothing of the failed pair
+                os.remove(tar_path)
+            raise
         done = True
     except OSError as exc:
         raise Refused("cannot write the image: %s" % exc)
     finally:
+        if backup and os.path.lexists(backup):
+            os.remove(backup)
         for fobj in (raw, mf):  # closing twice is harmless; open only when we failed before writing
             if fobj is not None:
                 fobj.close()
@@ -501,10 +481,14 @@ def main(argv=None):
     ap.add_argument("--out", required=True, help="folder for the .tar.gz and the manifest (outside the tree)")
     ap.add_argument("--include-owner-data", action="store_true",
                     help="also put the owner's games, BIOS files and saves in; the artifact name gets -owner")
+    ap.add_argument("--allow-suspicious", metavar="FILE",
+                    help="a text file, one relative path per line (exact match): files and folders with credential-like "
+                         "names listed there are copied; all others are left out and listed in the manifest")
     ap.add_argument("--force", action="store_true", help="replace an existing image of the same name")
     args = ap.parse_args(argv)
     try:
-        tar_path, man_path, m = build(args.tree, args.label, args.out, args.include_owner_data, args.force)
+        tar_path, man_path, m = build(args.tree, args.label, args.out, args.include_owner_data, args.force,
+                                         args.allow_suspicious)
     except (Refused, OSError) as exc:
         print("refused: %s" % exc, file=sys.stderr)
         return 2
@@ -516,10 +500,8 @@ def main(argv=None):
              "INCLUDED" if m["owner_data_included"] else "left out"))
     for cred in m["credential_names_not_copied"]:
         print("credential-like name not copied: %s (%s)" % (cred["path"], cred["rule"]))
-    for u in m["unscanned-timeout"]:
-        print("unscanned-timeout, not copied: %s (%s)" % (u["path"], u["rule"]))
-    for u in m["unscanned-archive"]:
-        print("unscanned-archive copied: %s (%s)" % (u["path"], u["rule"]))
+    for a in m["suspicious_names_allowed"]:
+        print("credential-like name copied (allow-list): %s (%s)" % (a["path"], a["rule"]))
     for s in m["skipped"]:
         print("skipped: %s (%s)" % (s["path"], s["reason"]))
     return 0

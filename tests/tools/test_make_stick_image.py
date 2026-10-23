@@ -93,6 +93,9 @@ class Base(unittest.TestCase):
         kw.setdefault("label", "t1")
         return msi.build(self.tree, kw.pop("label"), kw.pop("out", self.out), **kw)
 
+    def cli(self, out, *extra):
+        return msi.main([self.tree, "--label", "t1", "--out", out] + list(extra))
+
     def members(self, tar_path):
         with tarfile.open(tar_path, "r:gz") as tf:
             return {m.name: m for m in tf.getmembers()}, tf
@@ -107,7 +110,7 @@ class ExclusionTests(Base):
         self.assertEqual(files, {
             "VERSION", "Autobleem/bin/autobleem/autobleem-gui", "Autobleem/bin/autobleem/config.ini",
             "Apps/MyApp/app.sh", "Themes/Mine/theme.ini", "RetroArch/bin/playlists/PSX.lpl",
-            "RetroArch/bin/retroarch.cfg", "System/Databases/regional.db", "Themes/Mine/token.png"})
+            "RetroArch/bin/retroarch.cfg", "System/Databases/regional.db"})
         for bad in ("System/ssh", "System/Bios", "System/Preferences", "System/Region", "System/UI", "System/Logs",
                     "System/Install", "FOUND.000", "$RECYCLE.BIN", "System Volume Information", "Games",
                     "RetroArch/roms", "RetroArch/bios", "RetroArch/bin/saves", "Apps/MyApp/Logs"):
@@ -119,9 +122,9 @@ class ExclusionTests(Base):
         self.fake_stick()
         _, _, man = self.build()
         reported = {c["path"] for c in man["credential_names_not_copied"]}
-        self.assertEqual(reported, {"Apps/MyApp/api_token.txt", "Apps/MyApp/server.pem"})
+        self.assertEqual(reported, {"Apps/MyApp/api_token.txt", "Apps/MyApp/server.pem", "Themes/Mine/token.png"})
         self.assertNotIn("Apps/MyApp/api_token.txt", {r["path"] for r in man["files"]})
-        self.assertIn("Themes/Mine/token.png", {r["path"] for r in man["files"]})  # plain media file
+        self.assertNotIn("Themes/Mine/token.png", {r["path"] for r in man["files"]})  # media name: still not copied
 
     def test_exclusions_case_insensitive(self):
         put(self.tree, "Autobleem/a", b"a")
@@ -179,138 +182,108 @@ class CredentialNameTests(Base):
         self.assertIn("Autobleem/.gitignore", {r["path"] for r in man["files"]})
 
 
-class MediaExceptionTests(Base):
-    """Point 3: a media extension is no pass for a credential-named file with a secret in it."""
+class SuspiciousPolicyTests(Base):
+    """The policy: a credential-like NAME is not copied, whatever the content, unless the owner's allow-list names it."""
 
     def files(self, man):
         return {r["path"] for r in man["files"]}
 
-    def test_marker_in_media_named_credential_files(self):
+    def allow_file(self, *lines):
+        path = os.path.join(self.tmp, "allow.txt")
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write("\n".join(lines) + "\n")
+        return path
+
+    def test_media_named_suspicious_files_are_not_copied(self):
         put(self.tree, "Autobleem/ok", b"ok")
-        for rel in ("id_rsa.png", "secret.bin", "token.zip", "prod.pem.jpg", "my_token.ogg"):
-            put(self.tree, "Autobleem/" + rel, b"-----BEGIN PRIVATE KEY-----\nabc")
+        for rel in ("id_rsa.png", "secret.bin", "token.zip", "prod.pem.jpg", "my_token.ogg", "secret-garden.png"):
+            put(self.tree, "Autobleem/" + rel, b"\x89PNG" + b"\0" * 50)  # clean content: the name decides
         _, _, man = self.build()
         self.assertEqual(self.files(man), {"Autobleem/ok"})
-        self.assertEqual(len(man["credential_names_not_copied"]), 5)
+        self.assertEqual(len(man["credential_names_not_copied"]), 6)
 
-    def test_marker_straddling_the_chunk_boundary(self):
+    def test_content_is_never_read(self):
+        self.assertFalse(hasattr(msi, "has_secret_marker"))
+        self.assertFalse(hasattr(msi, "SECRET_MARKER"))
         put(self.tree, "Autobleem/ok", b"ok")
-        marker = b"-----BEGIN RSA PRIVATE KEY-----"
-        for shift in (1, 5, 20):
-            data = b"\x89PNG\r\n" + b"\0" * ((1 << 20) - 6 - shift) + marker + b"\0" * 100
-            put(self.tree, "Autobleem/token%d.png" % shift, data)
-        put(self.tree, "Autobleem/token_late.png", b"\x89PNG" + b"\0" * (3 << 20) + b"password = hunter2")
+        put(self.tree, "Autobleem/notes.txt", b"-----BEGIN PRIVATE KEY-----\npassword=x")  # innocent name
         _, _, man = self.build()
+        self.assertIn("Autobleem/notes.txt", self.files(man))
+        self.assertNotIn("unscanned-archive", man)
+        self.assertNotIn("unscanned-timeout", man)
+
+    def test_allow_list_lets_exact_paths_through(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Themes/token.png", b"png")
+        put(self.tree, "Themes/other/token.png", b"png")
+        put(self.tree, "Themes/secrets/a.txt", b"a")
+        allow = self.allow_file("Themes/token.png", "Themes/secrets/", "token.png")
+        _, _, man = self.build(allow_file=allow)
+        self.assertEqual(self.files(man), {"Autobleem/ok", "Themes/token.png", "Themes/secrets/a.txt"})
+        self.assertEqual([c["path"] for c in man["credential_names_not_copied"]], ["Themes/other/token.png"])
+        self.assertEqual([c["path"] for c in man["suspicious_names_allowed"]], ["Themes/secrets/", "Themes/token.png"])
+        self.assertEqual(man["counts"]["suspicious_names_allowed"], 2)
+
+    def test_allow_list_is_exact_not_a_pattern_or_case_folded(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Themes/Token.png", b"png")
+        allow = self.allow_file("Themes/token.png", "Themes/*", "Themes")
+        _, _, man = self.build(allow_file=allow)
         self.assertEqual(self.files(man), {"Autobleem/ok"})
 
-    def test_key_value_markers(self):
+    def test_allowed_folder_content_is_still_judged(self):
         put(self.tree, "Autobleem/ok", b"ok")
-        for i, body in enumerate((b"AKIA" + b"A" * 16, b"ghp_" + b"a" * 36, b"sk-ant-abcdefghijk", b"xoxb-1234567890-abc",
-                                  b"eyJabcde.eyJabcde.sig", b"token=abc", b"FOO_KEY=1\nBAR_KEY=2")):
-            put(self.tree, "Autobleem/secret%d.png" % i, b"\x89PNG" + b"\0" * 10 + body)
+        put(self.tree, "Themes/keys/a.txt", b"a")
+        put(self.tree, "Themes/keys/id_rsa", b"k")
+        _, _, man = self.build(allow_file=self.allow_file("Themes/keys"))
+        self.assertEqual(self.files(man), {"Autobleem/ok", "Themes/keys/a.txt"})
+        self.assertIn("Themes/keys/id_rsa", {c["path"] for c in man["credential_names_not_copied"]})
+
+    def test_allow_list_errors_refuse(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        with self.assertRaises(msi.Refused):
+            self.build(allow_file=os.path.join(self.tmp, "missing.txt"))
+        bad = os.path.join(self.tmp, "bad.txt")
+        with open(bad, "wb") as f:
+            f.write(b"\xff\xfe")
+        with self.assertRaises(msi.Refused):
+            self.build(allow_file=bad)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_cli_allow_option(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Autobleem/.envrc", b"x")
+        allow = self.allow_file("Autobleem/.envrc")
+        rc = msi.main([self.tree, "--label", "a", "--out", self.out, "--allow-suspicious", allow])
+        self.assertEqual(rc, 0)
+        with open(os.path.join(self.out, "autobleem-stick-image-a.MANIFEST.json")) as f:
+            self.assertIn("Autobleem/.envrc", {r["path"] for r in json.load(f)["files"]})
+
+
+class NameListTests(Base):
+    NAMES = ["authorized_keys", "known_hosts", ".envrc", "kubeconfig", "wallet.dat", ".bash_history",
+             "terraform.tfstate", "a.tfvars", "a.ovpn", "a.gpg", "a.asc", "a.p8", "a.keychain", ".s3cfg", ".dockercfg",
+             ".boto", ".my.cnf", "service-account.json", "private_key", "privkey", "Authorized_Keys", "PRIVKEY.txt"]
+    DIRS = ["credentials", "tokens", "keys", "private", "certs", ".password-store", "Keys", "secrets", ".kube"]
+
+    def test_names(self):
+        for n in self.NAMES:
+            self.assertIsNotNone(msi.credential_rule(n), n)
+        for n in self.DIRS:
+            self.assertIsNotNone(msi.credential_rule(n), n)
+        for n in ("config.ini", "keyboard.png", "private.txt", "monkeys", "certificates"):
+            self.assertIsNone(msi.credential_rule(n), n)
+
+    def test_folders_left_out_whole_at_any_depth(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        for d in self.DIRS:
+            put(self.tree, "Apps/x/%s/inner/a.txt" % d, b"a")
         _, _, man = self.build()
-        self.assertEqual(self.files(man), {"Autobleem/ok"})
-
-    def test_clean_media_file_is_copied(self):
-        put(self.tree, "Autobleem/ok", b"ok")
-        put(self.tree, "Themes/secret-garden.png", b"\x89PNG" + b"\0" * 5000)
-        _, _, man = self.build()
-        self.assertIn("Themes/secret-garden.png", self.files(man))
-        self.assertEqual(man["unscanned-archive"], [])
-
-    def test_dotfile_and_key_names_never_pass(self):
-        put(self.tree, "Autobleem/ok", b"ok")
-        put(self.tree, "Autobleem/id_rsa.png", b"\x89PNG" + b"\0" * 50)
-        put(self.tree, "Autobleem/.token.png", b"\x89PNG" + b"\0" * 50)
-        _, _, man = self.build()
-        self.assertEqual(self.files(man), {"Autobleem/ok"})
-
-    def test_archives_copied_but_reported(self):
-        put(self.tree, "Autobleem/ok", b"ok")
-        for ext in (".zip", ".7z", ".rar"):
-            put(self.tree, "Themes/token_pack" + ext, b"PK\x03\x04" + bytes(range(256)) * 4)
-        _, _, man = self.build()
-        for ext in (".zip", ".7z", ".rar"):
-            self.assertIn("Themes/token_pack" + ext, self.files(man))
-        self.assertEqual([u["path"] for u in man["unscanned-archive"]],
-                         ["Themes/token_pack.7z", "Themes/token_pack.rar", "Themes/token_pack.zip"])
-        self.assertEqual(man["counts"]["unscanned_archives"], 3)
-
-    def test_plain_archive_not_credential_named_not_listed(self):
-        put(self.tree, "Autobleem/ok", b"ok")
-        put(self.tree, "Themes/pack.zip", b"PK\x03\x04")
-        _, _, man = self.build()
-        self.assertEqual(man["unscanned-archive"], [])
-
-    def test_scan_timeout_reported_not_copied(self):
-        put(self.tree, "Autobleem/ok", b"ok")
-        put(self.tree, "Autobleem/token_big.png", b"\0" * 300000)
-        old = msi.SCAN_BUDGET, msi.SCAN_CHUNK
-        msi.SCAN_BUDGET, msi.SCAN_CHUNK = -1.0, 4096
-        try:
-            _, _, man = self.build()
-        finally:
-            msi.SCAN_BUDGET, msi.SCAN_CHUNK = old
-        self.assertEqual(self.files(man), {"Autobleem/ok"})
-        self.assertEqual([u["path"] for u in man["unscanned-timeout"]], ["Autobleem/token_big.png"])
-        self.assertEqual(man["counts"]["unscanned_timeouts"], 1)
-
-
-MARKER_SAMPLES = [
-    b"-----BEGIN RSA PRIVATE KEY-----", b"-----BEGIN\r\n", b"-----begin openssh private key-----",
-    b"LS0tLS1CRUdJTiBSU0E", b"xx0tLS0tQkVHSU4g", b"ytLS0tLUJFR0lOIA",
-    b"AKIA" + b"A" * 16, b"ASIA" + b"B" * 16, b"ghp_" + b"a" * 36, b"github_pat_" + b"a" * 30, b"glpat-" + b"a" * 20,
-    b"xoxs-1234567890-abc", b"xoxr-1234567890-abc", b"sk-ant-abcdefghijk", b"sk-proj-abcdefghijk",
-    b"sk-live-abcdefghijk", b"eyJabcde.eyJabcde.sig", b"eyJ" + b"a" * 2048 + b".eyJ" + b"b" * 2048 + b".",
-    b"ssh-rsa AAAA", b"ssh-ed25519 AAAA", b"ecdsa-sha2-nistp256 AAAA", b"Authorization: Bearer abc",
-    b"aws_secret_access_key=abc", b"aws_secret_access_key = abc", b"password: hunter2", b'"password": "hunter2"',
-    b"secret: x", b"token: x", b"api_key: x", b"apikey=x", b"passwd = x",
-    b"FOO_KEY=1\nBAR_KEY=2", b"FOO_KEY=1\r\nBAR_KEY=2", b"FOO_KEY=1\rBAR_KEY=2", b"FOO_KEY=1\n\nBAR_KEY=2",
-    b"FOO_KEY=1\r\n\r\nBAR_KEY=2",
-    b"A" + b"B" * 64 + b"=" + b"v" * 256 + b"\n" + b"C" + b"D" * 64 + b"=v",
-    b"password" + b" " * 64 + b"=" + b" " * 64 + b"x",
-]
-
-
-class SecretMarkerTests(Base):
-    """The content scan: bounded time on hostile bytes, same verdict whole or cut at a chunk boundary."""
-
-    def scan(self, data):
-        path = os.path.join(self.tmp, "f.bin")
-        with open(path, "wb") as f:
-            f.write(data)
-        return msi.has_secret_marker(path)
-
-    def test_every_sample_matches_whole(self):
-        for s in MARKER_SAMPLES:
-            self.assertTrue(self.scan(b"\0\0" + s + b"\0\0"), s)
-
-    def test_single_key_value_and_noise_are_not_markers(self):
-        for s in (b"FOO_KEY=1\n", b"FOO_KEY=1\n\n\nBAR_KEY=2", b"hello world", bytes(range(256)) * 8, b"ssh-rsa",
-                  b"-----BEGI", b"Authorization: Basic abc"):
-            self.assertFalse(self.scan(s), s)
-
-    def test_markers_across_every_chunk_boundary(self):
-        old = msi.SCAN_CHUNK
-        msi.SCAN_CHUNK = 8192
-        self.addCleanup(setattr, msi, "SCAN_CHUNK", old)
-        for s in MARKER_SAMPLES:
-            cuts = range(1, len(s)) if len(s) < 100 else (1, 2, len(s) // 2, len(s) - 2, len(s) - 1)
-            for k in cuts:
-                data = b"\0" * (8192 - k) + s + b"\0" * 20000
-                self.assertTrue(self.scan(data), (s[:30], k))
-
-    def test_hostile_input_is_fast(self):
-        import time
-        for name, data in (("A", b"A" * (4 << 20)), ("AAA=", b"AAA=" * (1 << 20)), ("random", os.urandom(4 << 20)),
-                           ("eyJ", b"eyJ" * (1 << 20)), ("token", b"token " * 700000),
-                           ("lines", b"AAA=b\n" * 600000), ("blank", b" " * (4 << 20))):
-            t0 = time.monotonic()
-            self.scan(data)
-            self.assertLess(time.monotonic() - t0, 2.0, name)
-
-    def test_overlap_covers_the_longest_match(self):
-        self.assertGreater(msi.MARKER_OVERLAP, 2 * 2048 + 8)
+        self.assertEqual({r["path"] for r in man["files"]}, {"Autobleem/ok"})
+        reported = {c["path"] for c in man["credential_names_not_copied"]}
+        for d in self.DIRS:
+            self.assertIn("Apps/x/%s/" % d, reported)
+        self.assertFalse(any("inner" in r for r in reported))
 
 
 class OwnerDataTests(Base):
@@ -461,6 +434,23 @@ class RefusalTests(Base):
         msi.check_name("com10")
         msi.check_name("a b.txt")
 
+    def test_reserved_names_superscript_and_console_handles(self):
+        for name in ("COM¹", "com².txt", "LPT³", "lpt¹.bin", "CONIN$", "conout$", "CONIN$.txt",
+                     "ＣＯＭ1"):
+            with self.assertRaises(msi.Refused, msg=name):
+                msi.check_name(name)
+
+    def test_shown_escapes_every_control_character(self):
+        for c in ("\n", "\r", "\x1b", "\x00", "\x7f", "\x85", "\x9b", " ", "‮"):
+            text = msi.shown("a%sb" % c)
+            self.assertNotIn(c, text)
+            self.assertTrue(text.isprintable(), repr(text))
+        self.assertEqual(msi.shown("a\x1b[2Jb"), "a\\x1b[2Jb")
+        self.assertEqual(msi.shown("café"), "café")
+        with self.assertRaises(msi.Refused) as cm:
+            msi.check_name("bad\nname<")
+        self.assertNotIn("\n", str(cm.exception))
+
     def test_reserved_name_in_tree(self):
         put(self.tree, "Autobleem/a", b"a")
         put(self.tree, "Apps/NUL.txt", b"x")
@@ -517,6 +507,48 @@ class RefusalTests(Base):
         with self.assertRaises(msi.Refused):
             self.build()
         self.build(force=True)
+
+    def test_force_is_atomic_when_the_manifest_cannot_be_replaced(self):
+        self.fake_stick()
+        tar_path, man_path, _ = self.build()
+        os.remove(man_path)
+        os.makedirs(os.path.join(man_path, "keep"))  # a folder where the manifest goes
+        old_tar = sha(tar_path)
+        put(self.tree, "Autobleem/new.txt", b"new")  # a forced build would differ from the old one
+        self.assertEqual(self.cli(self.out, "--force"), 2)
+        self.assertEqual(sha(tar_path), old_tar)
+        self.assertTrue(os.path.isdir(os.path.join(man_path, "keep")))
+        self.assertEqual(sorted(os.listdir(self.out)),
+                         sorted([os.path.basename(tar_path), os.path.basename(man_path)]))
+
+    def test_force_rollback_keeps_old_manifest_file(self):
+        self.fake_stick()
+        tar_path, man_path, _ = self.build()
+        old = sha(tar_path), sha(man_path)
+        put(self.tree, "Autobleem/new.txt", b"new")
+        real = msi.os.replace
+
+        def boom(src, dst, *a, **k):
+            if dst == man_path:
+                raise OSError("cannot replace")
+            return real(src, dst, *a, **k)
+        msi.os.replace = boom
+        try:
+            self.assertEqual(self.cli(self.out, "--force"), 2)
+        finally:
+            msi.os.replace = real
+        self.assertEqual((sha(tar_path), sha(man_path)), old)
+        self.assertEqual(len(os.listdir(self.out)), 2)
+
+    def test_force_failure_without_old_tar_leaves_no_new_tar(self):
+        self.fake_stick()
+        tar_path, man_path, _ = self.build()
+        os.remove(tar_path)
+        os.remove(man_path)
+        os.makedirs(man_path)
+        self.assertEqual(self.cli(self.out, "--force"), 2)
+        self.assertFalse(os.path.lexists(tar_path))
+        self.assertEqual(os.listdir(self.out), [os.path.basename(man_path)])
 
     def test_manifest_name_at_top(self):
         put(self.tree, "Autobleem/a", b"a")
@@ -597,9 +629,6 @@ class OutputSymlinkTests(Base):
 
 class OutputFailureTests(Base):
     """Points 5 and 6: a bad --out or an unreadable file is a 'refused:' exit 2, nothing left behind."""
-
-    def cli(self, out):
-        return msi.main([self.tree, "--label", "t1", "--out", out])
 
     def test_out_is_a_file(self):
         self.fake_stick()
