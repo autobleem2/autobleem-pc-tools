@@ -360,6 +360,49 @@ class InputSafetyTests(Base):
                          ["autobleem-stick-image-t1.MANIFEST.json", "autobleem-stick-image-t1.tar.gz"])
 
 
+@unittest.skipUnless(hasattr(os, "symlink"), "no symlinks")
+class OutputSymlinkTests(Base):
+    """Point 1: nothing planted in OUT may lead a write into the input tree."""
+
+    def plant(self, *names):
+        put(self.tree, "Autobleem/config.ini", b"theme=a\n")
+        victim = os.path.join(self.tree, "Autobleem", "config.ini")
+        os.makedirs(self.out)
+        for n in names:
+            try:
+                os.symlink(victim, os.path.join(self.out, n))
+            except OSError:
+                self.skipTest("cannot symlink")
+        return victim
+
+    def test_planted_part_symlinks_do_not_truncate(self):
+        victim = self.plant("autobleem-stick-image-t1.tar.gz.part", "autobleem-stick-image-t1.MANIFEST.json.part")
+        with self.assertRaises(msi.Refused):
+            self.build()
+        with open(victim, "rb") as f:
+            self.assertEqual(f.read(), b"theme=a\n")
+
+    def test_planted_artifact_symlink_refused_even_with_force(self):
+        victim = self.plant("autobleem-stick-image-t1.tar.gz")
+        with self.assertRaises(msi.Refused):
+            self.build(force=True)
+        with open(victim, "rb") as f:
+            self.assertEqual(f.read(), b"theme=a\n")
+
+    def test_planted_manifest_symlink_refused(self):
+        victim = self.plant("autobleem-stick-image-t1.MANIFEST.json")
+        with self.assertRaises(msi.Refused):
+            self.build(force=True)
+        with open(victim, "rb") as f:
+            self.assertEqual(f.read(), b"theme=a\n")
+
+    def test_final_names_are_regular_files(self):
+        put(self.tree, "Autobleem/a", b"a")
+        tar_path, man_path, _ = self.build()
+        self.assertFalse(os.path.islink(tar_path) or os.path.islink(man_path))
+        self.assertEqual(sorted(os.listdir(self.out)), sorted(os.path.basename(p) for p in (tar_path, man_path)))
+
+
 class AwkwardFileTests(Base):
     def test_space_nonascii_empty_deep(self):
         put(self.tree, "Autobleem/a", b"a")

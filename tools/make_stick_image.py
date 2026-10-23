@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import tarfile
+import tempfile
 
 TOOL_NAME = "make_stick_image"
 TOOL_VERSION = "1.0"
@@ -290,16 +291,23 @@ def build(tree, label, out_dir, include_owner=False, force=False):
     base = artifact_base(label, include_owner)
     tar_path = os.path.join(out_dir, base + ".tar.gz")
     man_path = os.path.join(out_dir, base + ".MANIFEST.json")
+    # a link planted under any of the artifact's names (or their .part names) could lead a write into the tree
+    for name in (tar_path, man_path, tar_path + ".part", man_path + ".part"):
+        if os.path.islink(name):
+            raise Refused("%s is a symlink; the output folder is not trusted" % shown(name))
     if not force and (os.path.exists(tar_path) or os.path.exists(man_path)):
         raise Refused("%s already exists (use --force to replace it)" % shown(tar_path))
     os.makedirs(out_dir, exist_ok=True)
 
-    tmp_tar = tar_path + ".part"
+    # temporary files are made fresh (O_EXCL, unique name) so no planted link or file is ever opened for writing
+    tar_fd, tmp_tar = tempfile.mkstemp(prefix=base + ".", suffix=".tar.part", dir=out_dir)
+    man_fd, tmp_man = tempfile.mkstemp(prefix=base + ".", suffix=".man.part", dir=out_dir)
+    raw, mf = os.fdopen(tar_fd, "wb"), os.fdopen(man_fd, "wb")
     entries = sorted([(p, None) for p in plan.dirs] + [(p, (a, s)) for p, a, s in plan.files], key=lambda x: x[0])
     file_records = []
     try:
-        with open(tmp_tar, "wb") as raw:
-            gz = gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9)
+        with raw:
+            gz =gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9)
             tf = tarfile.open(fileobj=gz, mode="w", format=tarfile.GNU_FORMAT, encoding="utf-8")
             for parts, info in entries:
                 ti = tarfile.TarInfo("/".join(parts))
@@ -345,13 +353,20 @@ def build(tree, label, out_dir, include_owner=False, force=False):
             tf.addfile(mi, io.BytesIO(data))
             tf.close()
             gz.close()
-        with open(man_path + ".part", "wb") as f:
-            f.write(data)
-        os.replace(tmp_tar, tar_path)
-        os.replace(man_path + ".part", man_path)
+        with mf:
+            mf.write(data)
+        for tmp in (tmp_tar, tmp_man):  # mkstemp makes them 0600
+            os.chmod(tmp, 0o644)
+        for name in (tar_path, man_path):  # re-checked right before the rename
+            if os.path.islink(name):
+                raise Refused("%s is a symlink; the output folder is not trusted" % shown(name))
+        os.replace(tmp_tar, tar_path)  # a rename replaces the name itself, it never writes through a link
+        os.replace(tmp_man, man_path)
     finally:
-        for leftover in (tmp_tar, man_path + ".part"):
-            if os.path.exists(leftover):
+        for fobj in (raw, mf):  # closing twice is harmless; open only when we failed before writing
+            fobj.close()
+        for leftover in (tmp_tar, tmp_man):
+            if os.path.lexists(leftover):
                 os.remove(leftover)
     return tar_path, man_path, manifest
 
