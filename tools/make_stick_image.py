@@ -334,6 +334,8 @@ def build(tree, label, out_dir, include_owner=False, force=False):
     """Make the image. Returns (tar path, manifest path, manifest dict)."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}", label or ""):
         raise Refused("label must be 1-40 characters of A-Z a-z 0-9 . _ - and start with a letter or digit")
+    if label.lower().endswith("-owner"):
+        raise Refused("a label may not end in -owner: that suffix is the tool's own mark of an owner-data image")
     plan = scan(tree, include_owner)
     root = os.path.realpath(tree)
     out_real = os.path.realpath(out_dir)

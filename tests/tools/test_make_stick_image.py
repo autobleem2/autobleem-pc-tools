@@ -418,6 +418,16 @@ class RefusalTests(Base):
             with self.assertRaises(msi.Refused, msg=label):
                 self.build(label=label)
 
+    def test_label_ending_in_owner(self):
+        self.fake_stick()
+        for label in ("mine-owner", "x-OWNER", "-owner"):
+            with self.assertRaises(msi.Refused, msg=label):
+                self.build(label=label)
+            with self.assertRaises(msi.Refused, msg=label):
+                self.build(label=label, include_owner=True)
+        self.assertFalse(os.path.exists(self.out))
+        self.build(label="owner-notes")  # only the suffix is reserved
+
     def test_output_inside_tree(self):
         self.fake_stick()
         with self.assertRaises(msi.Refused):
