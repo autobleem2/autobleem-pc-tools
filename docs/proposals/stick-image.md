@@ -67,7 +67,7 @@ Matched case-insensitively. A matching folder is left out with everything below 
 
 | Rule | What |
 |---|---|
-| `ssh-key` | `System/ssh/` (a temporary key) |
+| `ssh-key` | `System/ssh/` (a temporary key), at any depth (e.g. `Autobleem/System/ssh`); `Bios`, `Preferences`, `Region`, `UI` below stay root-only |
 | `console-state` | `System/Bios`, `System/Preferences`, `System/Region`, `System/UI` (per-console) |
 | `installer-scratch` | `System/Install/` (the installer's download folder; not asked for, added) |
 | `logs` | any folder named `Logs` (e.g. `System/Logs`, `RetroArch/bin/logs`), any `*.log` |
@@ -76,13 +76,17 @@ Matched case-insensitively. A matching folder is left out with everything below 
 | `tmp` | `*.tmp` |
 | `thumbs-db` | `Thumbs.db` |
 | `owner-data` | see section 5; left out unless `--include-owner-data` |
-| credential names | a **file** whose name matches `.env`, `.env.*`, `*token*`, `*credential*`, `*secret*`, `*.pem`, `*.key`, `*.pfx`, `*.p12`, `*.ppk`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `.netrc`, `.git-credentials` is **not copied and is reported** (stdout and `credential_names_not_copied` in the manifest) - unless its extension is a plain game/media one (`.bin .cue .iso .chd .png .jpg .mp3 .zip .srm ...`; full list `MEDIA_EXTENSIONS` in the tool) |
+| credential folders | a **folder** named `.ssh`, `.git`, `.aws`, `.gnupg`, `.config`, `.kube`, `.docker`, `secret`, `secrets`, at any depth, is **not copied and is reported** (`credential_names_not_copied`, rule `credential folder name`) |
+| credential names | a **file** whose name matches `.env`, `.env.*`, `*token*`, `*credential*`, `*secret*`, `*passw*`, `shadow`, `*.pem`, `*.pem.*`, `*.key`, `*.pfx`, `*.p12`, `*.ppk`, `*.kdbx`, `*.jks`, `keystore*`, `api_key*`, `apikey*`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `wpa_supplicant*`, `.htpasswd`, `.npmrc`, `.netrc`, `.git-credentials`, `cookies.sqlite` is **not copied and is reported** (stdout and `credential_names_not_copied` in the manifest) - unless its extension is a plain game/media one (`.bin .cue .iso .chd .png .jpg .mp3 .zip .srm ...`; full list `MEDIA_EXTENSIONS` in the tool) **and** its whole content (scanned in chunks with overlap) holds no secret marker (`-----BEGIN `, `AKIA...`, `ghp_`/`github_pat_`, `xox`, `sk-ant-`, a JWT, `password=`/`token=`/`secret=`/`api_key=`, two `KEY=VALUE` lines). Dotfiles and `id_*` key names are never media. A file with a marker is reported, not copied (`id_rsa.png`, `secret.bin`). `.zip`, `.7z`, `.rar` cannot be scanned: with a credential-like name they are copied but listed under `unscanned-archive` in the manifest (and on stdout) for the owner to look at |
 
 Refused outright (nothing written, exit code 2): a missing or empty tree; a tree with no `Autobleem/` at its top;
 a symlink that resolves outside the tree; a path component `..`, `.` or empty; Windows reserved names (`CON PRN AUX
 NUL COM1-9 LPT1-9`, also with an extension), names with `<>:"|?*\` or control characters or a trailing dot/space,
-non-UTF-8 names; two names in one folder that differ only by case; a path over 1024 characters; a root file
-`MANIFEST.json`; an output folder inside the tree; an existing output without `--force`; every file excluded.
+non-UTF-8 names; two names in one folder that differ only by case or by Unicode normalization (NFC/NFD); a path over
+1024 characters; a root file `MANIFEST.json`; an output folder inside the tree; an `--out` that is an existing file;
+a label ending in `-owner` (that suffix marks owner-data images); an unreadable file or any other I/O error (the
+temporary files and an output folder made by the run are removed); a symlink in `--out` named like the artifact, the
+manifest or their temporary files; an existing output without `--force`; every file excluded.
 Symlinks that stay inside the tree and special files are not followed and not copied; they are listed under `skipped`.
 Entries inside an excluded folder are not checked (they are not copied).
 
@@ -95,7 +99,10 @@ stdlib only, read-only on `TREE`. Writes in `DIR`: `autobleem-stick-image-<label
 deterministic: members sorted by path (folders kept, so empty ones survive), mtime fixed 2020-01-01, uid/gid 0,
 modes 0644 / 0755, gzip without name or time, GNU tar format (the core's `TarArchive` reads GNU long names but skips pax
 headers) - two runs on the same tree give the same sha256. The manifest has no absolute path and no timestamp.
-Tests: `python3 -m unittest discover -s tests/tools` (33 tests on a fake tree).
+Output is written to fresh temporary files made in `DIR` (`mkstemp`: exclusive create, unique name, so a planted
+link is never opened) and renamed over the final names; a rename replaces the name itself and never follows a link.
+Tests: `python3 -m unittest discover -s tests/tools -p "test_*.py"` (54 tests on a fake tree); the tester's
+adversarial script `python3 tests/tools/adv_stick_image.py` (41 checks) runs the tool as a subprocess.
 
 ## 5. The owner's games and BIOS files
 
