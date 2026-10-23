@@ -518,6 +518,59 @@ class OutputSymlinkTests(Base):
         self.assertEqual(sorted(os.listdir(self.out)), sorted(os.path.basename(p) for p in (tar_path, man_path)))
 
 
+class OutputFailureTests(Base):
+    """Points 5 and 6: a bad --out or an unreadable file is a 'refused:' exit 2, nothing left behind."""
+
+    def cli(self, out):
+        return msi.main([self.tree, "--label", "t1", "--out", out])
+
+    def test_out_is_a_file(self):
+        self.fake_stick()
+        target = os.path.join(self.tmp, "afile")
+        with open(target, "wb") as f:
+            f.write(b"keep")
+        with self.assertRaises(msi.Refused):
+            self.build(out=target)
+        self.assertEqual(self.cli(target), 2)
+        with open(target, "rb") as f:
+            self.assertEqual(f.read(), b"keep")
+
+    def test_unreadable_file(self):
+        self.fake_stick()
+        victim = os.path.join(self.tree, "Apps", "MyApp", "app.sh")
+        os.chmod(victim, 0)
+        self.addCleanup(os.chmod, victim, 0o644)
+        self.assertEqual(self.cli(self.out), 2)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_oserror_while_writing_leaves_nothing(self):
+        self.fake_stick()
+        os.makedirs(self.out)
+        real = msi.os.replace
+
+        def boom(*a, **k):
+            raise OSError("disk full")
+        msi.os.replace = boom
+        try:
+            self.assertEqual(self.cli(self.out), 2)
+        finally:
+            msi.os.replace = real
+        self.assertEqual(os.listdir(self.out), [])
+
+    def test_new_out_folder_removed_on_failure(self):
+        self.fake_stick()
+        real = msi.os.replace
+
+        def boom(*a, **k):
+            raise OSError("disk full")
+        msi.os.replace = boom
+        try:
+            self.assertEqual(self.cli(self.out), 2)
+        finally:
+            msi.os.replace = real
+        self.assertFalse(os.path.exists(self.out))
+
+
 class AwkwardFileTests(Base):
     def test_space_nonascii_empty_deep(self):
         put(self.tree, "Autobleem/a", b"a")

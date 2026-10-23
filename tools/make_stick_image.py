@@ -285,6 +285,8 @@ def scan(tree, include_owner):
                 plan.dirs.append(cparts)
                 stack.append((cparts, e.path))
             elif e.is_file(follow_symlinks=False):
+                if not os.access(e.path, os.R_OK):
+                    raise Refused("cannot read %s: permission denied" % shown(rel))
                 verdict = credential_verdict(e.name, e.path)
                 if verdict and verdict[0] == "skip":
                     plan.credentials.append({"path": shown(rel), "rule": verdict[1]})
@@ -336,7 +338,10 @@ def build(tree, label, out_dir, include_owner=False, force=False):
         raise Refused("label must be 1-40 characters of A-Z a-z 0-9 . _ - and start with a letter or digit")
     if label.lower().endswith("-owner"):
         raise Refused("a label may not end in -owner: that suffix is the tool's own mark of an owner-data image")
-    plan = scan(tree, include_owner)
+    try:
+        plan = scan(tree, include_owner)
+    except OSError as exc:
+        raise Refused("cannot read the tree: %s" % exc)
     root = os.path.realpath(tree)
     out_real = os.path.realpath(out_dir)
     if inside(out_real, root):
@@ -350,17 +355,23 @@ def build(tree, label, out_dir, include_owner=False, force=False):
             raise Refused("%s is a symlink; the output folder is not trusted" % shown(name))
     if not force and (os.path.exists(tar_path) or os.path.exists(man_path)):
         raise Refused("%s already exists (use --force to replace it)" % shown(tar_path))
-    os.makedirs(out_dir, exist_ok=True)
-
-    # temporary files are made fresh (O_EXCL, unique name) so no planted link or file is ever opened for writing
-    tar_fd, tmp_tar = tempfile.mkstemp(prefix=base + ".", suffix=".tar.part", dir=out_dir)
-    man_fd, tmp_man = tempfile.mkstemp(prefix=base + ".", suffix=".man.part", dir=out_dir)
-    raw, mf = os.fdopen(tar_fd, "wb"), os.fdopen(man_fd, "wb")
+    if os.path.lexists(out_dir) and not os.path.isdir(out_dir):
+        raise Refused("--out is not a folder: %s" % shown(out_dir))
+    made_out = not os.path.exists(out_dir)
+    raw = mf = None
+    tmp_tar = tmp_man = None
+    done = False
     entries = sorted([(p, None) for p in plan.dirs] + [(p, (a, s)) for p, a, s in plan.files], key=lambda x: x[0])
     file_records = []
     try:
+        os.makedirs(out_dir, exist_ok=True)
+        # temporary files are made fresh (O_EXCL, unique name) so no planted link or file is ever opened for writing
+        tar_fd, tmp_tar = tempfile.mkstemp(prefix=base + ".", suffix=".tar.part", dir=out_dir)
+        raw = os.fdopen(tar_fd, "wb")
+        man_fd, tmp_man = tempfile.mkstemp(prefix=base + ".", suffix=".man.part", dir=out_dir)
+        mf = os.fdopen(man_fd, "wb")
         with raw:
-            gz =gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9)
+            gz = gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9)
             tf = tarfile.open(fileobj=gz, mode="w", format=tarfile.GNU_FORMAT, encoding="utf-8")
             for parts, info in entries:
                 ti = tarfile.TarInfo("/".join(parts))
@@ -417,12 +428,21 @@ def build(tree, label, out_dir, include_owner=False, force=False):
                 raise Refused("%s is a symlink; the output folder is not trusted" % shown(name))
         os.replace(tmp_tar, tar_path)  # a rename replaces the name itself, it never writes through a link
         os.replace(tmp_man, man_path)
+        done = True
+    except OSError as exc:
+        raise Refused("cannot write the image: %s" % exc)
     finally:
         for fobj in (raw, mf):  # closing twice is harmless; open only when we failed before writing
-            fobj.close()
+            if fobj is not None:
+                fobj.close()
         for leftover in (tmp_tar, tmp_man):
-            if os.path.lexists(leftover):
+            if leftover and os.path.lexists(leftover):
                 os.remove(leftover)
+        if made_out and not done:
+            try:
+                os.rmdir(out_dir)
+            except OSError:
+                pass
     return tar_path, man_path, manifest
 
 
@@ -437,7 +457,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         tar_path, man_path, m = build(args.tree, args.label, args.out, args.include_owner_data, args.force)
-    except Refused as exc:
+    except (Refused, OSError) as exc:
         print("refused: %s" % exc, file=sys.stderr)
         return 2
     c = m["counts"]
