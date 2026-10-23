@@ -230,10 +230,8 @@ def main():
     out = os.path.join(WORK, "s9", "out")
     cmd, r = run(t, out, label="mine-owner")
     name_clash = os.path.exists(os.path.join(out, "autobleem-stick-image-mine-owner.tar.gz"))
-    with tarfile.open(os.path.join(out, "autobleem-stick-image-mine-owner.tar.gz")) as tf:
-        mm = json.loads(tf.extractfile("MANIFEST.json").read())
-    report("a NON-owner image labelled 'mine-owner' gets the '-owner' artifact name (naming is the owner/shareable signal)",
-           not name_clash, cmd, r, "owner_data_included=%s" % mm["owner_data_included"])
+    report("a label ending in '-owner' is refused (exit 2, no file): the suffix is the owner/shareable signal",
+           r.returncode == 2 and not name_clash and not os.path.exists(out), cmd, r, "rc=%d file=%s" % (r.returncode, name_clash))
     cmd, r = run(t, out, "--include-owner-data", label="mine")
     cmd2, r2 = run(t, out, "--include-owner-data", label="mine")
     report("owner image of label 'mine' would collide with the above (refused w/o --force?)",
