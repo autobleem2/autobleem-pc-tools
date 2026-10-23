@@ -138,6 +138,47 @@ class ExclusionTests(Base):
         self.assertEqual(games["files"], 3)
 
 
+class CredentialNameTests(Base):
+    """Point 2: secret-like names and folders outside the first pattern list."""
+
+    FILES = [".ssh/known", "secrets/db.txt", ".git/config", "Autobleem/wpa_supplicant.conf", "Autobleem/.htpasswd",
+             "Autobleem/passwords.txt", "Autobleem/vault.kdbx", ".aws/config", ".gnupg/trustdb.gpg",
+             "Autobleem/keystore.jks", "Autobleem/api_key.txt", "Autobleem/apikey.json", "Autobleem/.npmrc",
+             "Autobleem/client_secret.json", "Autobleem/passwd", "Autobleem/shadow", "Autobleem/cookies.sqlite",
+             "Apps/deep/.ssh/id", "Apps/deep/.config/x/y"]
+
+    def test_none_copied_all_reported(self):
+        put(self.tree, "Autobleem/ok.txt", b"ok")
+        for rel in self.FILES:
+            put(self.tree, rel, b"x")
+        _, _, man = self.build()
+        self.assertEqual([r["path"] for r in man["files"]], ["Autobleem/ok.txt"])
+        reported = {c["path"] for c in man["credential_names_not_copied"]}
+        for top in (".ssh/", "secrets/", ".git/", ".aws/", ".gnupg/", "Apps/deep/.ssh/", "Apps/deep/.config/",
+                    "Autobleem/passwd", "Autobleem/shadow", "Autobleem/.npmrc"):
+            self.assertIn(top, reported)
+        self.assertEqual(man["counts"]["credential_names_not_copied"], len(man["credential_names_not_copied"]))
+
+    def test_folder_content_not_walked(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, ".git/objects/CON", b"x")  # a bad name inside is not a reason to refuse
+        self.build()
+
+    def test_nested_system_ssh_excluded_but_bios_stays_root_only(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Autobleem/System/ssh/k", b"k")
+        put(self.tree, "Autobleem/System/Bios/b.bin", b"b")
+        _, _, man = self.build()
+        files = {r["path"] for r in man["files"]}
+        self.assertNotIn("Autobleem/System/ssh/k", files)
+        self.assertIn("Autobleem/System/Bios/b.bin", files)
+
+    def test_gitignore_is_not_a_git_folder(self):
+        put(self.tree, "Autobleem/.gitignore", b"x")
+        _, _, man = self.build()
+        self.assertIn("Autobleem/.gitignore", {r["path"] for r in man["files"]})
+
+
 class OwnerDataTests(Base):
     def test_default_leaves_owner_data_out(self):
         self.fake_stick()

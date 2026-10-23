@@ -71,7 +71,12 @@ OWNER_DATA_PATHS = [
 CREDENTIAL_PATTERNS = [
     ".env", ".env.*", "*token*", "*credential*", "*secret*", "*.pem", "*.key", "*.pfx", "*.p12", "*.ppk",
     "id_rsa*", "id_ed25519*", "id_ecdsa*", "id_dsa*", ".netrc", ".git-credentials",
+    "*.pem.*", "*.key.*", "*passw*", ".htpasswd", "passwd*", "shadow", "shadow-", "wpa_supplicant*", "*.kdbx", "*.kdb",
+    "*.jks", "*.keystore", "keystore*", "api_key*", "apikey*", "api-key*", ".npmrc", ".pypirc", ".pgpass",
+    "cookies.sqlite", "cookies*.sqlite",
 ]
+# folders (or files) of these names hold credentials: left out whole, at any depth, and reported
+CREDENTIAL_DIR_NAMES = {".ssh", ".git", ".aws", ".gnupg", ".config", ".kube", ".docker", "secret", "secrets"}
 MEDIA_EXTENSIONS = {
     ".bin", ".cue", ".img", ".iso", ".chd", ".pbp", ".ecm", ".m3u", ".sbi", ".cdi", ".gdi", ".mdf", ".mds", ".ccd",
     ".sub", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".mp3", ".ogg", ".wav", ".flac", ".mp4",
@@ -99,6 +104,8 @@ def exclusion_rule(parts, is_dir, include_owner):
     for prefix, rule in EXCLUDE_PATHS.items():
         if rel == prefix or rel.startswith(prefix + "/"):
             return rule
+    if len(low) >= 2 and "/".join(low[-2:]) == "system/ssh":  # also Autobleem/System/ssh, at any depth
+        return EXCLUDE_PATHS["system/ssh"]
     if not include_owner:
         for prefix in OWNER_DATA_PATHS:
             if rel == prefix or rel.startswith(prefix + "/"):
@@ -218,6 +225,9 @@ def scan(tree, include_owner):
                 files, size = count_below(e.path)
                 plan.excluded.append({"path": shown(rel) + ("/" if is_dir else ""), "rule": rule,
                                       "files": files, "bytes": size})
+                continue
+            if e.name.lower() in CREDENTIAL_DIR_NAMES:
+                plan.credentials.append({"path": shown(rel) + ("/" if is_dir else ""), "rule": "credential folder name"})
                 continue
             check_relpath(cparts)
             folded = e.name.lower()
