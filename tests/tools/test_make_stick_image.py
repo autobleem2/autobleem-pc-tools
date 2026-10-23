@@ -179,6 +179,70 @@ class CredentialNameTests(Base):
         self.assertIn("Autobleem/.gitignore", {r["path"] for r in man["files"]})
 
 
+class MediaExceptionTests(Base):
+    """Point 3: a media extension is no pass for a credential-named file with a secret in it."""
+
+    def files(self, man):
+        return {r["path"] for r in man["files"]}
+
+    def test_marker_in_media_named_credential_files(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        for rel in ("id_rsa.png", "secret.bin", "token.zip", "prod.pem.jpg", "my_token.ogg"):
+            put(self.tree, "Autobleem/" + rel, b"-----BEGIN PRIVATE KEY-----\nabc")
+        _, _, man = self.build()
+        self.assertEqual(self.files(man), {"Autobleem/ok"})
+        self.assertEqual(len(man["credential_names_not_copied"]), 5)
+
+    def test_marker_straddling_the_chunk_boundary(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        marker = b"-----BEGIN RSA PRIVATE KEY-----"
+        for shift in (1, 5, 20):
+            data = b"\x89PNG\r\n" + b"\0" * ((1 << 20) - 6 - shift) + marker + b"\0" * 100
+            put(self.tree, "Autobleem/token%d.png" % shift, data)
+        put(self.tree, "Autobleem/token_late.png", b"\x89PNG" + b"\0" * (3 << 20) + b"password = hunter2")
+        _, _, man = self.build()
+        self.assertEqual(self.files(man), {"Autobleem/ok"})
+
+    def test_key_value_markers(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        for i, body in enumerate((b"AKIA" + b"A" * 16, b"ghp_" + b"a" * 36, b"sk-ant-abcdefghijk", b"xoxb-1234567890-abc",
+                                  b"eyJabcde.eyJabcde.sig", b"token=abc", b"FOO_KEY=1\nBAR_KEY=2")):
+            put(self.tree, "Autobleem/secret%d.png" % i, b"\x89PNG" + b"\0" * 10 + body)
+        _, _, man = self.build()
+        self.assertEqual(self.files(man), {"Autobleem/ok"})
+
+    def test_clean_media_file_is_copied(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Themes/secret-garden.png", b"\x89PNG" + b"\0" * 5000)
+        _, _, man = self.build()
+        self.assertIn("Themes/secret-garden.png", self.files(man))
+        self.assertEqual(man["unscanned-archive"], [])
+
+    def test_dotfile_and_key_names_never_pass(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Autobleem/id_rsa.png", b"\x89PNG" + b"\0" * 50)
+        put(self.tree, "Autobleem/.token.png", b"\x89PNG" + b"\0" * 50)
+        _, _, man = self.build()
+        self.assertEqual(self.files(man), {"Autobleem/ok"})
+
+    def test_archives_copied_but_reported(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        for ext in (".zip", ".7z", ".rar"):
+            put(self.tree, "Themes/token_pack" + ext, b"PK\x03\x04" + bytes(range(256)) * 4)
+        _, _, man = self.build()
+        for ext in (".zip", ".7z", ".rar"):
+            self.assertIn("Themes/token_pack" + ext, self.files(man))
+        self.assertEqual([u["path"] for u in man["unscanned-archive"]],
+                         ["Themes/token_pack.7z", "Themes/token_pack.rar", "Themes/token_pack.zip"])
+        self.assertEqual(man["counts"]["unscanned_archives"], 3)
+
+    def test_plain_archive_not_credential_named_not_listed(self):
+        put(self.tree, "Autobleem/ok", b"ok")
+        put(self.tree, "Themes/pack.zip", b"PK\x03\x04")
+        _, _, man = self.build()
+        self.assertEqual(man["unscanned-archive"], [])
+
+
 class OwnerDataTests(Base):
     def test_default_leaves_owner_data_out(self):
         self.fake_stick()

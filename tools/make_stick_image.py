@@ -82,6 +82,16 @@ MEDIA_EXTENSIONS = {
     ".sub", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".mp3", ".ogg", ".wav", ".flac", ".mp4",
     ".mkv", ".avi", ".zip", ".7z", ".rar", ".srm", ".state", ".mcr", ".mcd", ".ttf",
 }
+ARCHIVE_EXTENSIONS = {".zip", ".7z", ".rar"}
+# dotfiles and key-file names are never media, whatever the extension
+MEDIA_NEVER = re.compile(r"^(\.|id_(rsa|dsa|ecdsa|ed25519))", re.I)
+# the secret markers of contractorfiles' media_ok (the same set): a media-named credential file passes only without them
+SECRET_MARKER = re.compile(
+    rb"-----BEGIN |AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|xox[abp]-[A-Za-z0-9-]{10,}"
+    rb"|sk-ant-[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*"
+    rb"|(?i:passw(?:or)?d|token|secret|api[_-]?key)[ \t]*=[ \t]*[^\s]"
+    rb"|[A-Z][A-Z0-9_]{2,}=\S+\r?\n[A-Z][A-Z0-9_]{2,}=\S")  # two KEY=VALUE lines in a row (.env)
+MARKER_OVERLAP = 1024
 
 WINDOWS_RESERVED = {"con", "prn", "aux", "nul"} | {"com%d" % i for i in range(1, 10)} | {"lpt%d" % i for i in range(1, 10)}
 WINDOWS_BAD_CHARS = set('<>:"|?*\\')
@@ -124,14 +134,41 @@ def exclusion_rule(parts, is_dir, include_owner):
 
 
 def credential_rule(name):
-    """The pattern a FILE name matches as a credential and is not a plain game/media file, else None."""
+    """The pattern a FILE name matches as a credential name, else None (the extension does not matter here)."""
     low = name.lower()
-    if os.path.splitext(low)[1] in MEDIA_EXTENSIONS:
-        return None
     for pattern in CREDENTIAL_PATTERNS:
         if fnmatch.fnmatchcase(low, pattern):
             return pattern
     return None
+
+
+def has_secret_marker(path):
+    """True when a secret marker occurs anywhere in the file (read in chunks with an overlap)."""
+    tail = b""
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1 << 20)
+            if not chunk:
+                return False
+            buf = tail + chunk
+            if SECRET_MARKER.search(buf):
+                return True
+            tail = buf[-MARKER_OVERLAP:]
+
+
+def credential_verdict(name, path):
+    """None when the name is not credential-like. Else (action, pattern): "skip" (not copied), "copy" (a media/game
+    file whose whole content has no secret marker) or "copy-unscanned" (the same, but an archive: its compressed content
+    cannot be scanned, so it is copied and listed in the manifest)."""
+    pattern = credential_rule(name)
+    if not pattern:
+        return None
+    ext = os.path.splitext(name.lower())[1]
+    if ext not in MEDIA_EXTENSIONS or MEDIA_NEVER.search(name):
+        return "skip", pattern
+    if has_secret_marker(path):
+        return "skip", pattern + " (secret marker in the content)"
+    return ("copy-unscanned" if ext in ARCHIVE_EXTENSIONS else "copy"), pattern
 
 
 def check_name(name):
@@ -189,6 +226,7 @@ class Plan:
         self.excluded = []    # dicts
         self.credentials = []  # dicts
         self.skipped = []     # dicts
+        self.unscanned = []   # credential-named archives, copied, content not scannable
 
 
 def scan(tree, include_owner):
@@ -247,10 +285,12 @@ def scan(tree, include_owner):
                 plan.dirs.append(cparts)
                 stack.append((cparts, e.path))
             elif e.is_file(follow_symlinks=False):
-                cred = credential_rule(e.name)
-                if cred:
-                    plan.credentials.append({"path": shown(rel), "rule": cred})
+                verdict = credential_verdict(e.name, e.path)
+                if verdict and verdict[0] == "skip":
+                    plan.credentials.append({"path": shown(rel), "rule": verdict[1]})
                     continue
+                if verdict and verdict[0] == "copy-unscanned":
+                    plan.unscanned.append({"path": shown(rel), "rule": verdict[1]})
                 plan.files.append((cparts, e.path, e.stat(follow_symlinks=False).st_size))
             else:
                 plan.skipped.append({"path": shown(rel), "reason": "not a regular file"})
@@ -261,6 +301,7 @@ def scan(tree, include_owner):
     plan.excluded.sort(key=lambda x: x["path"])
     plan.credentials.sort(key=lambda x: x["path"])
     plan.skipped.sort(key=lambda x: x["path"])
+    plan.unscanned.sort(key=lambda x: x["path"])
     return plan
 
 
@@ -348,11 +389,13 @@ def build(tree, label, out_dir, include_owner=False, force=False):
                     "excluded_files": sum(x["files"] for x in plan.excluded),
                     "credential_names_not_copied": len(plan.credentials),
                     "skipped": len(plan.skipped),
+                    "unscanned_archives": len(plan.unscanned),
                 },
                 "exclusion_rules": active_rules(include_owner),
                 "excluded": plan.excluded,
                 "credential_names_not_copied": plan.credentials,
                 "skipped": plan.skipped,
+                "unscanned-archive": plan.unscanned,
                 "dirs": ["/".join(p) for p in plan.dirs],
                 "files": file_records,
             }
@@ -403,6 +446,8 @@ def main(argv=None):
              "INCLUDED" if m["owner_data_included"] else "left out"))
     for cred in m["credential_names_not_copied"]:
         print("credential-like name not copied: %s (%s)" % (cred["path"], cred["rule"]))
+    for u in m["unscanned-archive"]:
+        print("unscanned-archive copied: %s (%s)" % (u["path"], u["rule"]))
     for s in m["skipped"]:
         print("skipped: %s (%s)" % (s["path"], s["reason"]))
     return 0
