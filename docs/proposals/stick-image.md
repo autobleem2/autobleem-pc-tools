@@ -76,15 +76,41 @@ Matched case-insensitively. A matching folder is left out with everything below 
 | `tmp` | `*.tmp` |
 | `thumbs-db` | `Thumbs.db` |
 | `owner-data` | see section 5; left out unless `--include-owner-data` |
-| credential folders | a **folder** named `.ssh`, `.git`, `.aws`, `.gnupg`, `.config`, `.kube`, `.docker`, `secret`, `secrets`, at any depth, is **not copied and is reported** (`credential_names_not_copied`, rule `credential folder name`) |
-| credential names | a **file** whose name matches `.env`, `.env.*`, `*token*`, `*credential*`, `*secret*`, `*passw*`, `shadow`, `*.pem`, `*.pem.*`, `*.key`, `*.pfx`, `*.p12`, `*.ppk`, `*.kdbx`, `*.jks`, `keystore*`, `api_key*`, `apikey*`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `wpa_supplicant*`, `.htpasswd`, `.npmrc`, `.netrc`, `.git-credentials`, `cookies.sqlite` is **not copied and is reported** (stdout and `credential_names_not_copied` in the manifest) - unless its extension is a plain game/media one (`.bin .cue .iso .chd .png .jpg .mp3 .zip .srm ...`; full list `MEDIA_EXTENSIONS` in the tool) **and** its whole content (scanned in chunks with overlap) holds no secret marker (`-----BEGIN` in any case and its base64 form, `AKIA`/`ASIA...`, `ghp_`/`github_pat_`/`glpat-`, `xox[abprs]-`, `sk-ant-`/`sk-proj-`/`sk-live-`, a JWT, `ssh-rsa`/`ssh-ed25519`/`ecdsa-sha2-` keys, `Authorization: Bearer`, `password`/`secret`/`token`/`api_key`/`aws_secret_access_key` followed by `=` or `:` and a value, two `KEY=VALUE` lines at most one blank line apart; a single `KEY=VALUE` line is not a marker). The patterns have bounded repeats (no runaway time on hostile bytes), the scan overlap is derived from the longest possible match, and a file whose scan passes 20 s is not copied and is listed under `unscanned-timeout` in the manifest. Dotfiles and `id_*` key names are never media. A file with a marker is reported, not copied (`id_rsa.png`, `secret.bin`). `.zip`, `.7z`, `.rar` cannot be scanned: with a credential-like name they are copied but listed under `unscanned-archive` in the manifest (and on stdout) for the owner to look at |
+| suspicious names | a file, folder or link whose **name** looks like a credential is **not copied** and is listed in the manifest (`credential_names_not_copied`: path, rule; stdout too) - see "Suspicious names" below |
+
+### Suspicious names (best effort, names only)
+
+The tool judges by **name only**. It does not open the files to look for secrets: a content scan can always be
+fooled (encodings, compression, split values), so the tool makes no promise about contents. The policy is:
+
+- An entry (file, folder or link, at any depth, case-insensitive) is **suspicious** when its name matches one of
+  `CREDENTIAL_PATTERNS` (e.g. `.env`, `.env.*`, `.envrc`, `*token*`, `*credential*`, `*secret*`, `*passw*`, `shadow`,
+  `*.pem`, `*.key`, `*.pfx`, `*.p12`, `*.p8`, `*.ppk`, `*.kdbx`, `*.jks`, `*.gpg`, `*.asc`, `*.keychain`, `*.ovpn`,
+  `*.tfvars`, `terraform.tfstate*`, `keystore*`, `api_key*`, `apikey*`, `id_rsa*` / `id_ed25519*` / `id_ecdsa*` /
+  `id_dsa*`, `authorized_keys*`, `known_hosts*`, `kubeconfig*`, `wallet.dat`, `.bash_history`, `.s3cfg`, `.dockercfg`,
+  `.boto`, `.my.cnf`, `.htpasswd`, `.npmrc`, `.pypirc`, `.pgpass`, `.netrc`, `.git-credentials`, `wpa_supplicant*`,
+  `service-account*.json`, `private_key*`, `privkey*`, `cookies*.sqlite`) or is one of `CREDENTIAL_DIR_NAMES`
+  (`.ssh`, `.git`, `.aws`, `.gnupg`, `.config`, `.kube`, `.docker`, `secret`, `secrets`, `credentials`, `tokens`,
+  `keys`, `private`, `certs`, `.password-store`). The extension does not rescue a name: `token.png` and
+  `secret-garden.png` are suspicious too.
+- A suspicious folder is left out whole, with everything below it.
+- A suspicious entry is copied **only** if the owner passes `--allow-suspicious FILE` and the entry's relative path
+  (as in the manifest, `/` separated, a trailing `/` ignored) is a line of FILE. The match is exact: no patterns, no
+  case folding, one path per line, empty lines ignored, UTF-8, at most 1 MiB. Allowing a folder copies the folder, but
+  what is inside it is judged again by name (a suspicious name inside needs its own line).
+- The manifest lists every skipped suspicious name (`credential_names_not_copied`) so the owner can review them, and
+  every one the allow-list let through (`suspicious_names_allowed`); the counts are in `counts`.
+
+Limits: a secret in a file with an ordinary name (`notes.txt`, `config.ini`, a saved Wi-Fi password in a theme file)
+**is copied**. The owner reads the manifest, reviews the image before sharing it and remains responsible for what is on
+the stick. The tool lowers the risk of an accident; it is not a secret filter.
 
 Refused outright (nothing written, exit code 2): a missing or empty tree; a tree with no `Autobleem/` at its top;
 a symlink that resolves outside the tree; a path component `..`, `.` or empty; Windows reserved names (`CON PRN AUX
-NUL COM1-9 LPT1-9`, also with an extension), names with `<>:"|?*\` or control characters or a trailing dot/space,
+NUL CONIN$ CONOUT$ COM1-9 LPT1-9`, also the superscript digits `COM¹ COM² COM³ LPT¹ LPT² LPT³`, also with an extension), names with `<>:"|?*\` or control characters or a trailing dot/space,
 non-UTF-8 names; two names in one folder that differ only by case or by Unicode normalization (NFC/NFD); a path over
 1024 characters; a root file `MANIFEST.json`; an output folder inside the tree; an `--out` that is an existing file;
-a label ending in `-owner` (that suffix marks owner-data images); an unreadable file or any other I/O error (the
+a label ending in `-owner` (that suffix marks owner-data images); an unreadable file, an unreadable or non-UTF-8 allow-list, or any other I/O error (the
 temporary files and an output folder made by the run are removed); a symlink in `--out` named like the artifact, the
 manifest or their temporary files; an existing output without `--force`; every file excluded.
 Symlinks that stay inside the tree and special files are not followed and not copied; they are listed under `skipped`.
@@ -92,7 +118,7 @@ Entries inside an excluded folder are not checked (they are not copied).
 
 ## 4. The tool
 
-    python3 tools/make_stick_image.py TREE --label LABEL --out DIR [--include-owner-data] [--force]
+    python3 tools/make_stick_image.py TREE --label LABEL --out DIR [--include-owner-data] [--allow-suspicious FILE] [--force]
 
 stdlib only, read-only on `TREE`. Writes in `DIR`: `autobleem-stick-image-<label>[-owner].tar.gz` and
 `autobleem-stick-image-<label>[-owner].MANIFEST.json` (identical to the tar's `MANIFEST.json`). Output is
@@ -101,8 +127,12 @@ modes 0644 / 0755, gzip without name or time, GNU tar format (the core's `TarArc
 headers) - two runs on the same tree give the same sha256. The manifest has no absolute path and no timestamp.
 Output is written to fresh temporary files made in `DIR` (`mkstemp`: exclusive create, unique name, so a planted
 link is never opened) and renamed over the final names; a rename replaces the name itself and never follows a link.
-Tests: `python3 -m unittest discover -s tests/tools -p "test_*.py"` (60 tests on a fake tree); the tester's
-adversarial script `python3 tests/tools/adv_stick_image.py` (41 checks) runs the tool as a subprocess.
+`--force` replaces the pair as one step: the old tar is parked, the new tar and manifest are renamed in, and if the
+second rename fails the old tar is put back, so the old pair stays intact (exit 2). Messages and the manifest show
+names with every control character escaped (`\x1b`), never raw.
+Tests: `python3 -m unittest discover -s tests/tools -p "test_*.py"` (on a fake tree); the tester's adversarial
+scripts `python3 tests/tools/adv_stick_image.py` and `python3 tests/tools/adv_stick_image_r3.py` run the tool as a
+subprocess.
 
 ## 5. The owner's games and BIOS files
 
@@ -123,4 +153,4 @@ Backups of the real stick are the owner's own step (to `E:\tmp\`), not part of t
   the scratch folder instead.
 - Should owner-data images apply only when the label/manifest matches the stick (a safety check), and may they
   overwrite files of games already on the stick?
-- Credential-name list and media extensions: confirm the lists; the Foundry rule text was not given in full.
+- Credential-name list: confirm it; the Foundry rule text was not given in full.
